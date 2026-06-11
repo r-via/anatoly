@@ -9,6 +9,7 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { contextLogger } from '../../../utils/log-context.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
+import { renderConsumerContext } from './consumer-context.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
 
@@ -113,6 +114,9 @@ export function buildDuplicationUserMessage(ctx: AxisContext): string {
     parts.push('No RAG data available. Mark all symbols as UNIQUE (confidence: 90).');
     parts.push('');
   }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) parts.push(consumerSection);
 
   parts.push('Evaluate the duplication of each symbol and output the JSON.');
 

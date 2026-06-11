@@ -108,6 +108,7 @@ interface VectorRow {
   behavioralProfile: string;
   complexityScore: number;
   calledInternals: string;   // JSON-serialized string[]
+  referencedImports: string; // JSON-serialized string[] (cross-file referenced imports)
   lastIndexed: string;
   vector: number[];
   nlp_vector: number[];
@@ -294,6 +295,7 @@ export class VectorStore {
       behavioralProfile: card.behavioralProfile ?? 'utility',
       complexityScore: card.complexityScore,
       calledInternals: JSON.stringify(card.calledInternals),
+      referencedImports: JSON.stringify(card.referencedImports ?? []),
       lastIndexed: card.lastIndexed,
       vector: embeddings[i],
       // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
@@ -579,6 +581,7 @@ export class VectorStore {
       behavioralProfile: '',
       complexityScore: 0,
       calledInternals: '[]',
+      referencedImports: '[]',
       lastIndexed: new Date().toISOString(),
       vector: new Array(getCodeDim()).fill(0),
       nlp_vector: nlpEmbeddings[i],
@@ -678,6 +681,7 @@ export class VectorStore {
         behavioralProfile: String(row.behavioralProfile ?? ''),
         complexityScore: typeof row.complexityScore === 'number' ? row.complexityScore : 0,
         calledInternals: String(row.calledInternals ?? '[]'),
+        referencedImports: String(row.referencedImports ?? '[]'),
         lastIndexed: String(row.lastIndexed ?? new Date().toISOString()),
         vector: toNumberArray(row.vector),
         nlp_vector: toNumberArray(row.nlp_vector),
@@ -701,7 +705,7 @@ export class VectorStore {
     const rows = await this.table
       .query()
       .where(`filePath = '${sanitizeFilePath(filePath)}'`)
-      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type'])
+      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'referencedImports', 'lastIndexed', 'type'])
       .toArray();
     return rows.filter(r => r.type !== 'doc_section').map(rowToCard);
   }
@@ -751,7 +755,7 @@ export class VectorStore {
     if (!this.table) return [];
     const rows = await this.table
       .query()
-      .select(['id', 'filePath', 'name', 'summary', 'docSummary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type', 'doc_vector'])
+      .select(['id', 'filePath', 'name', 'summary', 'docSummary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'referencedImports', 'lastIndexed', 'type', 'doc_vector'])
       .toArray();
     return rows
       .filter((r) => r.type !== 'doc_section')
@@ -765,7 +769,7 @@ export class VectorStore {
     if (!this.table) return [];
     const rows = await this.table
       .query()
-      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'lastIndexed', 'type'])
+      .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'referencedImports', 'lastIndexed', 'type'])
       .toArray();
     return rows.filter((r) => r.type !== 'doc_section').map(rowToCard);
   }
@@ -951,6 +955,7 @@ function rowToCard(row: Record<string, unknown>): FunctionCard {
       : 'utility') as FunctionCard['behavioralProfile'],
     complexityScore: typeof row.complexityScore === 'number' ? row.complexityScore : 1,
     calledInternals: safeParseJsonArray(row.calledInternals),
+    referencedImports: safeParseJsonArray(row.referencedImports),
     lastIndexed: String(row.lastIndexed ?? ''),
   };
 }

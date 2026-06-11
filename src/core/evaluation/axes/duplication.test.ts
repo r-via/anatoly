@@ -40,6 +40,7 @@ const mockRag: PreResolvedRag = [
           behavioralProfile: 'pure',
           complexityScore: 2,
           calledInternals: [],
+          referencedImports: [],
           lastIndexed: '2026-02-25T00:00:00Z',
         },
         score: 0.92,

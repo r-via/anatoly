@@ -234,6 +234,7 @@ function makeCard(name: string, filePath: string): FunctionCard {
     signature: `function ${name}()`,
     complexityScore: 1,
     calledInternals: [],
+    referencedImports: [],
     lastIndexed: '2024-01-01T00:00:00.000Z',
   };
 }

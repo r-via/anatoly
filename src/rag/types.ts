@@ -40,6 +40,16 @@ export const FunctionCardSchema = z.object({
   behavioralProfile: BehavioralProfileSchema.optional(),
   complexityScore: z.number().int().min(1).max(5),
   calledInternals: z.array(z.string()),
+  /**
+   * Names of project symbols this function imports AND references in its body
+   * (the cross-file reference edge, captured at index time). Unlike
+   * `calledInternals` (same-file calls only), this records dependencies on OTHER
+   * files. Name-only — file-level resolution is supplied by the usage graph at
+   * query time; inverting this field yields the precise consumer functions of
+   * any exported symbol. Defaults to [] for cards indexed before this field
+   * existed (graceful pre-rebuild degradation).
+   */
+  referencedImports: z.array(z.string()).default([]),
   lastIndexed: z.string().datetime(),
 });
 

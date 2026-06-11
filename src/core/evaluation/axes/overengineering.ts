@@ -12,6 +12,7 @@ import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
 import { DocDivergenceSchema } from '../../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
+import { renderConsumerContext } from './consumer-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (overengineering axis only)
@@ -111,6 +112,9 @@ export function buildOverengineeringUserMessage(ctx: AxisContext): string {
     }
     parts.push('');
   }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) parts.push(consumerSection);
 
   parts.push('Evaluate the complexity of each symbol and output the JSON.');
 

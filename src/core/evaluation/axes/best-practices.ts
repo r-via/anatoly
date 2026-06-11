@@ -10,6 +10,7 @@ import { formatReclassificationsForAxis } from '../../platform/index.js';
 import { DocDivergenceSchema } from '../../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
+import { renderConsumerContext } from './consumer-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (best_practices axis — file-level, not per-symbol)
@@ -149,6 +150,9 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
     parts.push('Use the project structure above to evaluate rule 11 (import organization) and detect file placement inconsistencies. If the file is in an unexpected directory given the project conventions, flag it as WARN for the most relevant rule.');
     parts.push('');
   }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) parts.push(consumerSection);
 
   parts.push('Evaluate all 17 rules and output the JSON.');
 

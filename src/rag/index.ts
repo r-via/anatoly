@@ -7,7 +7,7 @@ export type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from '
 export { embed, embedCode, embedNlp, embedCodeBatch, embedNlpBatch, buildEmbedCode, buildEmbedNlp, setEmbeddingLogger, configureModels, getCodeModelId, getNlpModelId, getCodeDim, getNlpDim, EMBEDDING_DIM, EMBEDDING_MODEL } from './embeddings.js';
 export { VectorStore, sanitizeId, sanitizeFilePath } from './vector-store.js';
 export type { UpsertOptions } from './vector-store.js';
-export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionBody, computeComplexity, extractCalledInternals, needsReindex, embedCards, enrichCardsWithSummaries, generateNlpEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, computeBodyHash } from './indexer.js';
+export { buildFunctionCards, buildFunctionId, extractSignature, extractFunctionBody, computeComplexity, extractCalledInternals, extractReferencedImports, needsReindex, embedCards, enrichCardsWithSummaries, generateNlpEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, computeBodyHash } from './indexer.js';
 export type { RagCache, NlpSummaryCache, NlpSummaryCacheEntry } from './indexer.js';
 export { generateNlpSummaries } from './nlp-summarizer.js';
 export type { NlpSummary } from './nlp-summarizer.js';

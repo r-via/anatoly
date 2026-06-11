@@ -11,6 +11,7 @@ import {
   extractSignature,
   computeComplexity,
   extractCalledInternals,
+  extractReferencedImports,
   buildFunctionCards,
   needsReindex,
   loadRagCache,
@@ -170,6 +171,42 @@ function main() {
   });
 });
 
+describe('extractReferencedImports', () => {
+  const imports = [
+    { source: './device', type: 'import' as const, symbols: ['getCarriers', 'getDivisors'] },
+    { source: './paytable', type: 'import' as const, symbols: ['getPayMultiplier'] },
+    { source: 'react', type: 'import' as const, symbols: ['useState'] },
+  ];
+
+  it('keeps only imported names the body actually references', () => {
+    const body = 'const c = getCarriers(d); return getPayMultiplier(s, n);';
+    const refs = extractReferencedImports(body, imports);
+    expect(refs.sort()).toEqual(['getCarriers', 'getPayMultiplier']);
+    expect(refs).not.toContain('getDivisors'); // imported but unused in this body
+    expect(refs).not.toContain('useState');
+  });
+
+  it('matches a non-call reference too (constant / type read)', () => {
+    const refs = extractReferencedImports('return ORB_PATHS[id] || NEUTRAL;', [
+      { source: './c', type: 'import' as const, symbols: ['ORB_PATHS', 'NEUTRAL', 'UNUSED'] },
+    ]);
+    expect(refs.sort()).toEqual(['NEUTRAL', 'ORB_PATHS']);
+  });
+
+  it('skips namespace and bare default imports (binding name differs)', () => {
+    const refs = extractReferencedImports('ns.foo(); def();', [
+      { source: './ns', type: 'import' as const, namespace: true },
+      { source: './def', type: 'import' as const, symbols: ['default'] },
+    ]);
+    expect(refs).toEqual([]);
+  });
+
+  it('returns [] when there are no imports', () => {
+    expect(extractReferencedImports('const x = 1;', undefined)).toEqual([]);
+    expect(extractReferencedImports('const x = 1;', [])).toEqual([]);
+  });
+});
+
 describe('buildFunctionCards', () => {
   it('builds cards from AST data without LLM input', () => {
     const source = `export function greet(name: string): string {
@@ -233,6 +270,7 @@ describe('needsReindex', () => {
     signature: 'function test()',
     complexityScore: 1,
     calledInternals: [] as string[],
+    referencedImports: [] as string[],
     lastIndexed: '2026-01-01T00:00:00.000Z',
   };
 

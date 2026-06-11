@@ -7,6 +7,7 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { getSymbolUsage } from '../../scanning/index.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
+import { renderConsumerContext } from './consumer-context.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
 import { DocDivergenceSchema } from '../../../schemas/review.js';
@@ -155,6 +156,9 @@ export function buildTestsUserMessage(ctx: AxisContext): string {
       parts.push('');
     }
   }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) parts.push(consumerSection);
 
   parts.push('Evaluate the test quality for each symbol and output the JSON.');
 

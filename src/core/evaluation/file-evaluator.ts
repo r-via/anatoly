@@ -12,11 +12,11 @@ import { isRateLimitStandbyError } from '../../utils/rate-limiter.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../../schemas/review.js';
-import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc, ImportedSymbolInterface } from './contract.js';
+import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc, ImportedSymbolInterface, ConsumerContext, ConsumerFunctionRef } from './contract.js';
 import type { TransportRouter } from '../transports/index.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { DependencyMeta } from '../scanning/index.js';
-import { extractFileDeps, getImportedSymbolsBySource } from '../scanning/index.js';
+import { extractFileDeps, getImportedSymbolsBySource, getSymbolUsage } from '../scanning/index.js';
 import type { VectorStore } from '../../rag/vector-store.js';
 import { buildFunctionId } from '../../rag/indexer.js';
 import { retrieveRelevantDocsForFile } from '../../rag/per-file-doc-retrieval.js';
@@ -142,6 +142,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
   // Resolve interfaces of imported project functions for the correction axis
   // (signatures + summaries, so remediations reference real inputs/outputs).
   const importedInterfaces = await resolveImportedInterfaces(task, usageGraph, opts);
+
+  // Resolve cross-file consumers of this file's exports (function-level), for
+  // every axis to reason about real downstream usage.
+  const consumerContext = await resolveConsumerContext(task, usageGraph, opts);
 
   const fileDeps = opts.depMeta ? extractFileDeps(fileContent, opts.depMeta) : undefined;
 
@@ -296,6 +300,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     usageGraph,
     preResolvedRag,
     importedInterfaces,
+    consumerContext,
     fileDeps,
     projectTree: opts.projectTree,
     testFileContent,
@@ -545,6 +550,66 @@ async function resolveImportedInterfaces(
     } catch (err) {
       contextLogger().warn({ sourceFile, file: task.file, err: String(err) }, 'imported-interface lookup failed');
     }
+  }
+
+  return out.length > 0 ? out : undefined;
+}
+
+/** Caps keeping the consumer-context section bounded per reviewed file. */
+const MAX_CONSUMER_SYMBOLS = 16;
+const MAX_CONSUMERS_PER_SYMBOL = 6;
+const MAX_CONSUMER_FILES_SCANNED = 8;
+
+/**
+ * Resolve the cross-file consumers of this file's EXPORTED symbols, at function
+ * granularity. Joins two sources, neither re-implemented here: the usage graph
+ * gives the consumer FILES (it already resolved every import specifier), and RAG
+ * card `referencedImports` says which functions in those files actually
+ * reference the symbol. Result: the precise consumer functions (signature +
+ * behavioral summary) of each export, for every axis to reason about downstream
+ * usage. RAG-off (no vector store) → undefined.
+ *
+ * Default-exported symbols are not matched at function granularity: their
+ * consumer-side binding name differs from the source name, so `referencedImports`
+ * (name-based) cannot link them; the file-level usage graph still covers them
+ * for the Callers section.
+ */
+async function resolveConsumerContext(
+  task: Task,
+  usageGraph: UsageGraph | undefined,
+  opts: EvaluateFileOptions,
+): Promise<ConsumerContext[] | undefined> {
+  if (!opts.ragEnabled || !opts.vectorStore || !usageGraph) return undefined;
+
+  const out: ConsumerContext[] = [];
+  for (const sym of task.symbols) {
+    if (!sym.exported) continue;
+    if (out.length >= MAX_CONSUMER_SYMBOLS) break;
+
+    const consumerFiles = getSymbolUsage(usageGraph, sym.name, task.file);
+    if (consumerFiles.length === 0) continue;
+
+    const consumers: ConsumerFunctionRef[] = [];
+    for (const consumerFile of consumerFiles.slice(0, MAX_CONSUMER_FILES_SCANNED)) {
+      if (consumers.length >= MAX_CONSUMERS_PER_SYMBOL) break;
+      try {
+        const cards = await opts.vectorStore.getCardsByFile(consumerFile);
+        for (const card of cards) {
+          if (!card.referencedImports?.includes(sym.name)) continue;
+          consumers.push({
+            file: consumerFile,
+            name: card.name,
+            signature: card.signature,
+            ...(card.summary ? { summary: card.summary } : {}),
+          });
+          if (consumers.length >= MAX_CONSUMERS_PER_SYMBOL) break;
+        }
+      } catch (err) {
+        contextLogger().warn({ consumerFile, symbol: sym.name, file: task.file, err: String(err) }, 'consumer-context lookup failed');
+      }
+    }
+
+    if (consumers.length > 0) out.push({ symbol: sym.name, consumers });
   }
 
   return out.length > 0 ? out : undefined;

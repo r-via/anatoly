@@ -76,6 +76,31 @@ This gives the LLM definitive evidence to classify each symbol:
 - **Exported + zero importers:** LIKELY DEAD (the LLM confirms based on other signals like entry points, CLI commands, etc.)
 - **Not exported:** internal to the file; the LLM checks local usage within the source
 
+## Cross-File Consumer Context (all axes)
+
+Beyond the utility axis, the usage graph also drives a function-level consumer
+context shared by every axis. Two derivations sit on top of the `usages` map:
+
+- `getImportedSymbolsBySource(graph, importerFile)` inverts the map to answer the
+  forward question: which symbols does this file import, and from which source
+  file. No path resolver is needed because the graph already resolved every
+  import specifier when it built the reverse edges.
+- For each symbol a file exports, `getSymbolUsage` gives the consumer files. The
+  file-evaluator then joins those files with RAG card `referencedImports` (which
+  function in a consumer file actually references the symbol) to produce
+  `ConsumerContext`: the precise consumer functions of each export, with their
+  signature and behavioral summary.
+
+The usage graph stays file-level (which file imports a symbol); the RAG card adds
+the function-level pinpoint (which function references it). The join lives in the
+file-evaluator and is exposed to every axis on `AxisContext.consumerContext`,
+rendered by `renderConsumerContext`. Axes use it differently: correction for
+change blast-radius and "consumer already guards this", overengineering for
+abstraction-versus-usage ratio, utility for reachability, duplication for
+consolidation impact, tests and documentation for fan-in priority. It is absent
+in RAG-off mode (no cards) and is treated as evidence, not proof, since it is
+static-reference based.
+
 ## Build Process
 
 The graph is built synchronously during Phase 4 (Usage Graph) of the pipeline:

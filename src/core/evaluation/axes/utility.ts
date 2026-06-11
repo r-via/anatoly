@@ -7,6 +7,7 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage, resolveExportedSymbolUtility } from '../../scanning/index.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
+import { renderConsumerContext } from './consumer-context.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
 
@@ -95,6 +96,9 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
     }
     parts.push('');
   }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) parts.push(consumerSection);
 
   parts.push('Evaluate the utility of each symbol and output the JSON.');
 

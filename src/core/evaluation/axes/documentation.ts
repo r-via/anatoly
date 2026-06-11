@@ -7,6 +7,7 @@ import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '.
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
+import { renderConsumerContext } from './consumer-context.js';
 import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
 
 // ---------------------------------------------------------------------------
@@ -119,6 +120,9 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
       parts.push('');
     }
   }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) parts.push(consumerSection);
 
   parts.push('Evaluate documentation for each symbol and output the JSON.');
 

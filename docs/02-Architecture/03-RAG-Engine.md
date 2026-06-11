@@ -11,7 +11,7 @@ Source Files
 AST Analysis (buildFunctionCards)
      |
      v
-FunctionCards (signature, complexity, calledInternals)
+FunctionCards (signature, complexity, calledInternals, referencedImports)
      |
      v
 Code Embedding (jinaai/jina-embeddings-v2-base-code, 768-dim)
@@ -78,6 +78,7 @@ A `FunctionCard` is the unit of indexing. Each card represents a single function
 | `behavioralProfile` | enum (optional) | One of: `pure`, `sideEffectful`, `async`, `memoized`, `stateful`, `utility`. Optional -- may be omitted. |
 | `complexityScore` | 1-5 | Cyclomatic complexity mapped to a 5-point scale |
 | `calledInternals` | string[] | Names of other functions in the same file that this function calls |
+| `referencedImports` | string[] | Names of project symbols imported from OTHER files that this function actually references in its body. The cross-file reference edge (`calledInternals` is same-file only). Name-only: file-level resolution comes from the usage graph. Inverting this field across cards yields the precise consumer functions of any exported symbol, which feeds the per-axis consumer context. Defaults to `[]` for cards indexed before the field existed. |
 | `lastIndexed` | ISO datetime | Timestamp of last indexing |
 
 The complexity score is computed locally from the function body by counting branching constructs (if, else if, case, &&, ||, ternary, catch) and mapping to a 1-5 scale:

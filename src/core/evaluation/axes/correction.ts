@@ -13,6 +13,7 @@ import { BaseSymbolSchema } from '../../../schemas/base-symbol.js';
 import { DocDivergenceSchema } from '../../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
+import { renderConsumerContext } from './consumer-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (correction axis only)
@@ -199,6 +200,11 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const importedInterfacesSection = renderImportedInterfacesContext(ctx);
   if (importedInterfacesSection) {
     parts.push(importedInterfacesSection);
+  }
+
+  const consumerSection = renderConsumerContext(ctx);
+  if (consumerSection) {
+    parts.push(consumerSection);
   }
 
   const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.arbitratedFragments);

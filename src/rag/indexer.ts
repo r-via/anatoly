@@ -129,6 +129,37 @@ function escapeRegExp(str: string): string {
 }
 
 /**
+ * Extract the project symbols this function references from OTHER files — the
+ * cross-file reference edge. Takes the imported NAMES declared at file scope
+ * (`task.imports`) and keeps those that actually appear in the function body
+ * (word-boundary), so a stale import that the function never touches is not
+ * recorded. Name-only: file-level resolution is the usage graph's job at query
+ * time. Namespace imports (`import * as X`) and bare default imports are skipped
+ * (their source-side names are not the local binding used in the body).
+ */
+export function extractReferencedImports(
+  body: string,
+  imports: Task['imports'],
+): string[] {
+  if (!imports || imports.length === 0) return [];
+
+  const names = new Set<string>();
+  for (const imp of imports) {
+    if (imp.namespace) continue;
+    for (const name of imp.symbols ?? []) {
+      if (name && name !== 'default') names.add(name);
+    }
+  }
+
+  const referenced: string[] = [];
+  for (const name of names) {
+    const pattern = new RegExp(`\\b${escapeRegExp(name)}\\b`);
+    if (pattern.test(body)) referenced.push(name);
+  }
+  return [...new Set(referenced)];
+}
+
+/**
  * Build FunctionCards from AST-derived data only (no LLM dependency).
  */
 export function buildFunctionCards(
@@ -147,6 +178,10 @@ export function buildFunctionCards(
     const signature = extractSignature(source, symbol);
     const complexityScore = computeComplexity(source, symbol);
     const calledInternals = extractCalledInternals(source, symbol, task.symbols);
+    const referencedImports = extractReferencedImports(
+      extractFunctionBody(source, symbol),
+      task.imports,
+    );
 
     cards.push({
       id,
@@ -155,6 +190,7 @@ export function buildFunctionCards(
       signature,
       complexityScore,
       calledInternals,
+      referencedImports,
       lastIndexed: now,
     });
   }

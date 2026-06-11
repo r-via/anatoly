@@ -50,6 +50,27 @@ export interface ImportedSymbolInterface {
   summary?: string;
 }
 
+/** One project function that consumes a symbol exported by the file under
+ *  review: where it lives, its signature, and its RAG behavioral summary. */
+export interface ConsumerFunctionRef {
+  file: string;
+  name: string;
+  signature: string;
+  summary?: string;
+}
+
+/** Cross-file consumers of one exported symbol of the file under review,
+ *  resolved by joining the reverse usage graph (which files import the symbol)
+ *  with RAG card `referencedImports` (which functions in those files actually
+ *  reference it). Lets every axis reason about real downstream usage: blast
+ *  radius of a change (correction), whether an abstraction earns its consumers
+ *  (overengineering), reachability (utility), consolidation impact
+ *  (duplication), and test/doc priority. */
+export interface ConsumerContext {
+  symbol: string;
+  consumers: ConsumerFunctionRef[];
+}
+
 // ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
@@ -92,6 +113,10 @@ export interface AxisContext {
    *  Lets the correction axis ground remediations in the real inputs/outputs of
    *  imported symbols (rules 15/16). Absent in RAG-off mode. */
   importedInterfaces?: ImportedSymbolInterface[];
+  /** Cross-file consumers of this file's exported symbols (function-level,
+   *  resolved from the usage graph + RAG `referencedImports`). Available to all
+   *  axes for downstream-usage reasoning. Absent in RAG-off mode. */
+  consumerContext?: ConsumerContext[];
   /** doc 19 PR 3 — per-call disambiguator (e.g. file slug "src-cli"). Becomes
    *  the `callId` segment of the harness-assigned dump slug
    *  `{phase}__{composer}__{primitive}__{callId}__{attempt}.md`. */
