@@ -80,6 +80,31 @@ describe('buildUtilityUserMessage', () => {
     expect(msg).toContain('padLeft (not exported): internal only');
   });
 
+  it('surfaces transitive in-file usage for a private helper called by a used export', () => {
+    const graph: UsageGraph = {
+      usages: new Map([['formatNumber::src/utils/format.ts', new Set(['src/core/reporter.ts'])]]),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map([['padLeft::src/utils/format.ts', new Set(['formatNumber'])]]),
+      noImportFiles: new Set(),
+    };
+    const msg = buildUtilityUserMessage(createCtx({ usageGraph: graph }));
+    expect(msg).toContain('padLeft (not exported): referenced in-file by formatNumber');
+    expect(msg).toContain('USED (transitively)');
+  });
+
+  it('keeps "internal only" when the in-file referencer is not itself cross-file alive', () => {
+    // formatNumber references padLeft, but formatNumber has no importers, so the
+    // transitive-liveness filter drops it — no false USED signal.
+    const graph: UsageGraph = {
+      usages: new Map(),
+      typeOnlyUsages: new Map(),
+      intraFileRefs: new Map([['padLeft::src/utils/format.ts', new Set(['formatNumber'])]]),
+      noImportFiles: new Set(),
+    };
+    const msg = buildUtilityUserMessage(createCtx({ usageGraph: graph }));
+    expect(msg).toContain('padLeft (not exported): internal only');
+  });
+
   it('should work without usage graph', () => {
     const msg = buildUtilityUserMessage(createCtx({ usageGraph: undefined }));
     expect(msg).not.toContain('Pre-computed Import Analysis');

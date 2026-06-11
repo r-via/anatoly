@@ -95,6 +95,51 @@ export interface User {
     expect(symbols.find((s) => s.name === 'App')?.is_default).toBe(true);
   });
 
+  it('marks a separately default-exported const (const Foo = ...; export default Foo)', async () => {
+    // The dominant React component form: a local binding, then a bare
+    // `export default Foo;`. Tree-sitter emits no declaration node here, so
+    // the symbol must be promoted to exported + is_default after the fact —
+    // otherwise the usage graph never folds in the `default` import edge and
+    // the (used) component is mis-flagged DEAD.
+    const source = `const AtmosphereHeroCard = () => null;\nexport default AtmosphereHeroCard;\n`;
+    const { symbols } = await parseFile('AtmosphereHeroCard.tsx', source);
+    expect(symbols.find((s) => s.name === 'AtmosphereHeroCard')).toMatchObject({
+      name: 'AtmosphereHeroCard',
+      exported: true,
+      is_default: true,
+    });
+  });
+
+  it('marks a separately default-exported class (class Foo {}; export default Foo)', async () => {
+    const source = `class SmartErrorBoundary {}\nexport default SmartErrorBoundary;\n`;
+    const { symbols } = await parseFile('SmartErrorBoundary.tsx', source);
+    expect(symbols.find((s) => s.name === 'SmartErrorBoundary')).toMatchObject({
+      name: 'SmartErrorBoundary',
+      kind: 'class',
+      exported: true,
+      is_default: true,
+    });
+  });
+
+  it('marks a symbol default-exported via `export { Foo as default }`', async () => {
+    const source = `function ScrollToTop() {}\nexport { ScrollToTop as default };\n`;
+    const { symbols } = await parseFile('ScrollToTop.tsx', source);
+    expect(symbols.find((s) => s.name === 'ScrollToTop')).toMatchObject({
+      name: 'ScrollToTop',
+      exported: true,
+      is_default: true,
+    });
+  });
+
+  it('does not promote unrelated bindings on an inline default export (export default { ... })', async () => {
+    // The default is an object literal, not an identifier — no local symbol is
+    // the default export, so the sibling const must stay non-exported.
+    const source = `const helper = () => null;\nexport default { wrapped: true };\n`;
+    const { symbols } = await parseFile('config.tsx', source);
+    expect(symbols.find((s) => s.name === 'helper')?.exported).toBe(false);
+    expect(symbols.find((s) => s.name === 'helper')?.is_default).toBeUndefined();
+  });
+
   it('should mark symbols exported via a trailing export clause (shadcn pattern)', async () => {
     const source = `function Button() { return null; }\nconst buttonVariants = () => '';\nexport { Button, buttonVariants };\n`;
     const { symbols } = await parseFile('button.tsx', source);

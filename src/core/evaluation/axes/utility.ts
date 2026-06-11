@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import type { AxisContext, AxisResult, AxisEvaluator, AxisSymbolResult } from '../contract.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
-import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage, resolveExportedSymbolUtility } from '../../scanning/index.js';
+import { getSymbolUsage, getTypeOnlySymbolUsage, getTransitiveUsage, resolveExportedSymbolUtility, resolveNonExportedSymbolUtility } from '../../scanning/index.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { renderConsumerContext } from './consumer-context.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
@@ -91,7 +91,16 @@ export function buildUtilityUserMessage(ctx: AxisContext): string {
           parts.push(`- ${sym.name} (exported): type-only imported by ${typeImporters.length} file${typeImporters.length > 1 ? 's' : ''}: ${typeImporters.join(', ')} — USED (type-only)`);
         }
       } else {
-        parts.push(`- ${sym.name} (not exported): internal only — check local usage in file`);
+        // A non-exported symbol referenced in-file by a used exported symbol is
+        // transitively alive — surface that so the model does not mistake a
+        // private helper (called only from another function in the file) for
+        // dead code.
+        const liveRefs = getTransitiveUsage(ctx.usageGraph, sym.name, ctx.task.file);
+        if (liveRefs.length > 0) {
+          parts.push(`- ${sym.name} (not exported): referenced in-file by ${liveRefs.join(', ')} (imported by other files) — USED (transitively)`);
+        } else {
+          parts.push(`- ${sym.name} (not exported): internal only — check local usage in file`);
+        }
       }
     }
     parts.push('');
@@ -124,7 +133,13 @@ function autoResolveSymbol(
   ctx: AxisContext,
 ): AutoVerdict {
   if (!ctx.usageGraph) return null;
-  return resolveExportedSymbolUtility(sym, ctx.usageGraph, ctx.task.file);
+  // Exported symbols resolve from import edges; non-exported symbols resolve
+  // only when transitively alive via a used in-file referencer (USED-only —
+  // the dead case stays with the LLM).
+  return (
+    resolveExportedSymbolUtility(sym, ctx.usageGraph, ctx.task.file) ??
+    resolveNonExportedSymbolUtility(sym, ctx.usageGraph, ctx.task.file)
+  );
 }
 
 // ---------------------------------------------------------------------------

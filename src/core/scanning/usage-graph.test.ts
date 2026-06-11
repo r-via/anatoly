@@ -13,6 +13,7 @@ import {
   getTypeOnlySymbolUsage,
   getImportedSymbolsBySource,
   resolveExportedSymbolUtility,
+  resolveNonExportedSymbolUtility,
   stripTemplateLiterals,
   type UsageGraph,
 } from './usage-graph.js';
@@ -692,6 +693,146 @@ describe('buildUsageGraph — default exports', () => {
       'src/components/AppLayout.tsx',
     );
     expect(verdict?.value).toBe('USED');
+  });
+});
+
+describe('buildUsageGraph — separately default-exported bindings (theraphonia utility FP guard)', () => {
+  // Build a Task from a REAL parse so the scanner-derived `is_default` flag —
+  // not a hand-set one — drives resolution. This is the end-to-end guard for
+  // the `const Foo = ...; export default Foo;` form that the scanner used to
+  // drop, which mis-flagged used React components (SmartErrorBoundary,
+  // SessionInspector, AtmosphereHeroCard) as DEAD.
+  async function realTask(relPath: string): Promise<Task> {
+    const r = await parseFile(relPath, readFileSync(join(testDir, relPath), 'utf-8'));
+    return {
+      version: 1,
+      file: relPath,
+      hash: 'realhash',
+      symbols: r.symbols,
+      ...(r.imports.length > 0 ? { imports: r.imports } : {}),
+      ...(r.importsEnriched ? { imports_enriched: true } : {}),
+      scanned_at: new Date().toISOString(),
+    };
+  }
+
+  it('resolves a const default export consumed via a barrel re-export to USED', async () => {
+    createFile(
+      'src/components/SessionInspector.tsx',
+      'const SessionInspector = () => null;\nexport default SessionInspector;\n',
+    );
+    createFile(
+      'src/components/index.ts',
+      "export { default as SessionInspector } from './SessionInspector';\n",
+    );
+    createFile(
+      'src/Bar.tsx',
+      "import { SessionInspector } from './components';\nexport function Bar() { return SessionInspector(); }\n",
+    );
+
+    const tasks = [
+      await realTask('src/components/SessionInspector.tsx'),
+      await realTask('src/components/index.ts'),
+      await realTask('src/Bar.tsx'),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    const sym = tasks[0].symbols.find((s) => s.name === 'SessionInspector')!;
+    expect(sym.is_default).toBe(true); // scanner promoted the separate `export default`
+    const verdict = resolveExportedSymbolUtility(sym, graph, 'src/components/SessionInspector.tsx');
+    expect(verdict?.value).toBe('USED');
+  });
+
+  it('resolves a class default export consumed via a direct default import to USED', async () => {
+    createFile(
+      'src/SmartErrorBoundary.tsx',
+      'class SmartErrorBoundary {}\nexport default SmartErrorBoundary;\n',
+    );
+    createFile(
+      'src/App.tsx',
+      "import SmartErrorBoundary from './SmartErrorBoundary';\nexport function App() { return new SmartErrorBoundary(); }\n",
+    );
+
+    const tasks = [
+      await realTask('src/SmartErrorBoundary.tsx'),
+      await realTask('src/App.tsx'),
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    const sym = tasks[0].symbols.find((s) => s.name === 'SmartErrorBoundary')!;
+    expect(sym.is_default).toBe(true);
+    const verdict = resolveExportedSymbolUtility(sym, graph, 'src/SmartErrorBoundary.tsx');
+    expect(verdict?.value).toBe('USED');
+  });
+});
+
+describe('resolveNonExportedSymbolUtility (non-exported transitive liveness)', () => {
+  async function realTask(relPath: string): Promise<Task> {
+    const r = await parseFile(relPath, readFileSync(join(testDir, relPath), 'utf-8'));
+    return {
+      version: 1,
+      file: relPath,
+      hash: 'realhash',
+      symbols: r.symbols,
+      ...(r.imports.length > 0 ? { imports: r.imports } : {}),
+      ...(r.importsEnriched ? { imports_enriched: true } : {}),
+      scanned_at: new Date().toISOString(),
+    };
+  }
+
+  it('marks a private helper called by a used exported function USED (listenerService FP)', async () => {
+    createFile(
+      'src/listenerService.ts',
+      'const isSystemListener = (n: string) => n === "sys";\n' +
+        'export const deleteListener = (n: string) => {\n' +
+        '  if (isSystemListener(n)) return false;\n' +
+        '  return true;\n' +
+        '};\n',
+    );
+    createFile(
+      'src/consumer.ts',
+      "import { deleteListener } from './listenerService';\nexport const run = () => deleteListener('x');\n",
+    );
+
+    const tasks = [await realTask('src/listenerService.ts'), await realTask('src/consumer.ts')];
+    const graph = buildUsageGraph(testDir, tasks);
+    const sym = tasks[0].symbols.find((s) => s.name === 'isSystemListener')!;
+    expect(sym.exported).toBe(false);
+    const verdict = resolveNonExportedSymbolUtility(sym, graph, 'src/listenerService.ts');
+    expect(verdict?.value).toBe('USED');
+  });
+
+  it('returns null when the only referencing exported symbol is itself never imported', async () => {
+    createFile(
+      'src/orphan.ts',
+      'const helper = () => 1;\nexport const publicFn = () => helper();\n',
+    );
+    // Nobody imports publicFn → it is not cross-file alive → helper stays undecided.
+    const tasks = [await realTask('src/orphan.ts')];
+    const graph = buildUsageGraph(testDir, tasks);
+    const sym = tasks[0].symbols.find((s) => s.name === 'helper')!;
+    expect(resolveNonExportedSymbolUtility(sym, graph, 'src/orphan.ts')).toBeNull();
+  });
+
+  it('returns null for a non-exported symbol that nothing references', async () => {
+    createFile(
+      'src/lonely.ts',
+      'const unused = () => 1;\nexport const publicFn = () => 2;\n',
+    );
+    createFile('src/c.ts', "import { publicFn } from './lonely';\nexport const r = () => publicFn();\n");
+    const tasks = [await realTask('src/lonely.ts'), await realTask('src/c.ts')];
+    const graph = buildUsageGraph(testDir, tasks);
+    const sym = tasks[0].symbols.find((s) => s.name === 'unused')!;
+    expect(resolveNonExportedSymbolUtility(sym, graph, 'src/lonely.ts')).toBeNull();
+  });
+
+  it('returns null when handed an exported symbol (guard — that path is the exported resolver)', async () => {
+    createFile('src/x.ts', 'export const a = () => 1;\nexport const b = () => a();\n');
+    createFile('src/c.ts', "import { b } from './x';\nexport const r = () => b();\n");
+    const tasks = [await realTask('src/x.ts'), await realTask('src/c.ts')];
+    const graph = buildUsageGraph(testDir, tasks);
+    const sym = tasks[0].symbols.find((s) => s.name === 'a')!;
+    expect(sym.exported).toBe(true);
+    expect(resolveNonExportedSymbolUtility(sym, graph, 'src/x.ts')).toBeNull();
   });
 });
 

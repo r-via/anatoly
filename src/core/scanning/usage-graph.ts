@@ -195,10 +195,16 @@ function stripCommentsAndStrings(source: string): string {
 }
 
 /**
- * Build intra-file reference graph: for each exported symbol, find which
- * other exported symbols in the same file reference it in their body.
- * This enables transitive usage detection — if symbol A is imported
- * externally and references symbol B in its body, B is transitively alive.
+ * Build intra-file reference graph: for each symbol, find which *exported*
+ * symbols in the same file reference it in their body. This enables transitive
+ * usage detection — if symbol A is imported externally and references symbol B
+ * in its body, B is transitively alive.
+ *
+ * Candidates (the referenced symbol B) span ALL symbols, so a non-exported
+ * private helper called by a used public function is recognised as alive.
+ * Referencers (A) are restricted to exported symbols so liveness is always
+ * anchored on a binding whose own usage is decidable from cross-file edges —
+ * which keeps the relation sound (never invents a false USED).
  */
 function buildIntraFileGraph(
   projectRoot: string,
@@ -208,7 +214,9 @@ function buildIntraFileGraph(
 
   for (const task of tasks) {
     const exported = task.symbols.filter((s) => s.exported);
-    if (exported.length < 2) continue;
+    // Need at least one exported anchor (a referencer) and a second symbol to
+    // be the candidate. Files with a single symbol cannot have intra-file refs.
+    if (exported.length < 1 || task.symbols.length < 2) continue;
 
     const absPath = resolve(projectRoot, task.file);
     let source: string;
@@ -220,7 +228,7 @@ function buildIntraFileGraph(
 
     const lines = source.split('\n');
 
-    for (const candidate of exported) {
+    for (const candidate of task.symbols) {
       for (const referencer of exported) {
         if (candidate.name === referencer.name) continue;
 
@@ -786,4 +794,40 @@ export function resolveExportedSymbolUtility(
     confidence: 95,
     detail: 'Exported but imported by 0 files',
   };
+}
+
+/**
+ * Pure utility-axis verdict for a NON-exported symbol from the usage graph
+ * alone — no LLM call.
+ *
+ * Returns `USED` when the symbol is referenced in its own file by an exported
+ * symbol that has cross-file importers (one-hop transitive liveness anchored on
+ * a definitely-used referencer). This is sound — a private helper called by a
+ * used public function is itself used — and never yields a false USED.
+ *
+ * Returns `null` otherwise: a non-exported symbol with no live in-file
+ * referencer cannot be proven dead from the graph alone (it may be referenced
+ * by another local binding the one-hop relation does not chase, or only inside
+ * expressions the lightweight scan misses), so the decision is left to the LLM.
+ *
+ * Complements {@link resolveExportedSymbolUtility} (which returns null for
+ * non-exported symbols); together they cover the auto-resolvable cases.
+ */
+export function resolveNonExportedSymbolUtility(
+  sym: { name: string; exported: boolean },
+  graph: UsageGraph,
+  ownFile: string,
+): { value: 'USED'; confidence: number; detail: string } | null {
+  if (sym.exported) return null;
+
+  const liveRefs = getTransitiveUsage(graph, sym.name, ownFile);
+  if (liveRefs.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 90,
+      detail: `Referenced in-file by ${liveRefs.join(', ')} (which ${liveRefs.length > 1 ? 'are' : 'is'} imported by other files)`,
+    };
+  }
+
+  return null;
 }

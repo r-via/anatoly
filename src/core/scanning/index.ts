@@ -33,6 +33,7 @@ export {
   getTransitiveUsage,
   getImportedSymbolsBySource,
   resolveExportedSymbolUtility,
+  resolveNonExportedSymbolUtility,
 } from './usage-graph.js';
 export type { UsageGraph } from './usage-graph.js';
 

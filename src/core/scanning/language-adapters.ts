@@ -337,6 +337,13 @@ export class TypeScriptAdapter implements LanguageAdapter {
     // that lists locally-declared bindings (the shadcn/ui pattern). Collected
     // here and applied after the loop, since the clause follows the decls.
     const clauseExported = new Set<string>();
+    // Names surfaced as the file's default export via a *separate* statement —
+    // `const Foo = ...; export default Foo;` or `export { Foo as default }` —
+    // rather than an inline `export default function/class Foo`. Tree-sitter
+    // emits no declaration node for these, so the local binding would otherwise
+    // stay unexported and be mis-flagged DEAD. Collected here, promoted after
+    // the loop (the statement usually follows the declaration).
+    const defaultExported = new Set<string>();
 
     for (const node of rootNode.namedChildren) {
       if (node.type === 'export_statement') {
@@ -351,18 +358,30 @@ export class TypeScriptAdapter implements LanguageAdapter {
           extractDeclaration(declaration, true, symbols, isDefault);
           continue;
         }
-        // No declaration: `export { A, B }` (export clause of local bindings) or
-        // `export { A } from './x'` (re-export). A re-export carries a `source`
-        // field and declares no local symbol — skip it. An export clause without
-        // a source promotes already-declared local symbols to exported.
+        // No declaration: `export { A, B }` (export clause of local bindings),
+        // `export { A } from './x'` (re-export), or `export default A` (default
+        // export of a previously-declared binding). A re-export carries a
+        // `source` field and declares no local symbol — skip it. An export
+        // clause without a source promotes already-declared local symbols to
+        // exported; `export default A` additionally marks A as the default.
         if (!node.childForFieldName('source')) {
           const clause = node.namedChildren.find((c: TSNode) => c.type === 'export_clause');
           if (clause) {
             for (const spec of clause.namedChildren) {
               if (spec.type !== 'export_specifier') continue;
               const nameNode = spec.childForFieldName('name');
-              if (nameNode) clauseExported.add(nameNode.text);
+              if (!nameNode) continue;
+              clauseExported.add(nameNode.text);
+              // `export { Foo as default }` — Foo is also the default export.
+              const aliasNode = spec.childForFieldName('alias');
+              if (aliasNode && aliasNode.text === 'default') defaultExported.add(nameNode.text);
             }
+          } else if ((node.children ?? []).some((c: TSNode) => c.type === 'default')) {
+            // `export default Foo;` referencing a prior local binding. The named
+            // child is the bare identifier; non-identifier defaults (object,
+            // call, member expression) reference no local symbol and are skipped.
+            const idNode = node.namedChildren.find((c: TSNode) => c.type === 'identifier');
+            if (idNode) defaultExported.add(idNode.text);
           }
         }
         continue;
@@ -379,6 +398,20 @@ export class TypeScriptAdapter implements LanguageAdapter {
     if (clauseExported.size > 0) {
       for (const sym of symbols) {
         if (!sym.exported && clauseExported.has(sym.name)) sym.exported = true;
+      }
+    }
+
+    // Promote the default-exported local binding (`export default Foo;` /
+    // `export { Foo as default }`). Marks both `exported` and `is_default` so
+    // usage resolution folds in the synthetic `default` import edge — the path
+    // that catches barrel re-exports (`export { default as Foo } from`) and
+    // direct default imports.
+    if (defaultExported.size > 0) {
+      for (const sym of symbols) {
+        if (defaultExported.has(sym.name)) {
+          sym.exported = true;
+          sym.is_default = true;
+        }
       }
     }
 
