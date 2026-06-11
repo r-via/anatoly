@@ -144,6 +144,17 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
       safe. A symbol shown with no importers and no in-file callers is unused
       (rule 14), not a correction bug. Heed its caveat: zero importers can mean
       an entry point or framework-invoked handler, so it is evidence, not proof.
+16. **Abstain on claims the given context cannot support.** A verdict or fix
+    that hinges on the behavior, return shape, or contract of something NOT
+    shown to you (an imported symbol's implementation or return type, a flag's
+    synchronization in a store/setter you cannot see, or an external API's
+    behavior you cannot cite) is a guess, not a finding. Do not call two
+    flags/fields "unrelated" or "independent" from their names alone (they may
+    be kept in sync elsewhere); do not propose reading or deriving a value from
+    an imported symbol whose return shape is not shown (the source may not
+    expose it); do not rest a finding on a platform/library API behavior you are
+    not highly confident of from rule 11. Prefer OK / no action, or say the fix
+    first requires confirming the unseen dependency.
 
 ## Output format
 

@@ -48,7 +48,9 @@ describe('buildCorrectionSystemPrompt', () => {
     expect(prompt).toContain('actions');
     expect(prompt).not.toContain('duplication');
     expect(prompt).not.toContain('utility');
-    expect(prompt.split('\n').length).toBeLessThan(220);
+    // Headroom for the precision rules accreted from FP analysis (rules 14-16);
+    // still a focused single-axis prompt, not a sprawling one.
+    expect(prompt.split('\n').length).toBeLessThan(240);
   });
 });
 
@@ -562,6 +564,16 @@ describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => 
       // Both directions: importers ⇒ live consumers; zero ⇒ unused, with caveat.
       expect(lower).toMatch(/live consumers|has live/);
       expect(lower).toMatch(/entry point|framework-invoked/);
+    });
+
+    it(`${label} variant abstains on ungrounded cross-context claims (rule 16)`, () => {
+      const lower = prompt.toLowerCase();
+      // The three FP shapes the generic guard covers (theraphonia cas 5/6/7).
+      expect(lower).toMatch(/"unrelated"|unrelated.*independent|independent.*unrelated/);
+      expect(lower).toMatch(/return shape is not shown|whose return shape/);
+      expect(lower).toMatch(/platform\/library api|external api/);
+      // The disposition: abstain rather than assert.
+      expect(lower).toMatch(/prefer ok|abstain/);
     });
   }
 });
