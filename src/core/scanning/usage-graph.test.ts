@@ -11,6 +11,7 @@ import {
   buildUsageGraph,
   getSymbolUsage,
   getTypeOnlySymbolUsage,
+  getImportedSymbolsBySource,
   resolveExportedSymbolUtility,
   stripTemplateLiterals,
   type UsageGraph,
@@ -763,5 +764,39 @@ describe('stripTemplateLiterals', () => {
   it('leaves non-template code untouched', () => {
     const src = 'function foo() { return bar(); }';
     expect(stripTemplateLiterals(src)).toBe(src);
+  });
+});
+
+describe('getImportedSymbolsBySource', () => {
+  function graphWith(usages: Record<string, string[]>): UsageGraph {
+    const m = new Map<string, Set<string>>();
+    for (const [key, importers] of Object.entries(usages)) m.set(key, new Set(importers));
+    return { usages: m, typeOnlyUsages: new Map(), intraFileRefs: new Map(), noImportFiles: new Set() };
+  }
+
+  it('inverts the usage graph to the symbols a file imports, grouped by source', () => {
+    const g = graphWith({
+      'getCarriers::src/audio/device.ts': ['src/ui/analyzer.ts', 'src/engine.ts'],
+      'getDivisors::src/audio/device.ts': ['src/ui/analyzer.ts'],
+      'unrelated::src/other.ts': ['src/engine.ts'],
+    });
+    const out = getImportedSymbolsBySource(g, 'src/ui/analyzer.ts');
+    expect([...out.keys()]).toEqual(['src/audio/device.ts']);
+    expect([...out.get('src/audio/device.ts')!].sort()).toEqual(['getCarriers', 'getDivisors']);
+  });
+
+  it('returns an empty map when the file imports nothing', () => {
+    const g = graphWith({ 'foo::src/a.ts': ['src/b.ts'] });
+    expect(getImportedSymbolsBySource(g, 'src/c.ts').size).toBe(0);
+  });
+
+  it('skips self-edges and splits keys on the last "::" (path-safe)', () => {
+    const g = graphWith({
+      'self::src/x.ts': ['src/x.ts'],          // self-edge, ignored
+      'helper::src/lib/util.ts': ['src/x.ts'], // real edge
+    });
+    const out = getImportedSymbolsBySource(g, 'src/x.ts');
+    expect([...out.keys()]).toEqual(['src/lib/util.ts']);
+    expect([...out.get('src/lib/util.ts')!]).toEqual(['helper']);
   });
 });

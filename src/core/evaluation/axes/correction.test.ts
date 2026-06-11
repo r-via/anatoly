@@ -7,7 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
-import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, renderCallersContext, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, stripResurrectionActions, CorrectionResponseSchema } from './correction.js';
+import { buildCorrectionSystemPrompt, buildCorrectionUserMessage, renderCallersContext, renderImportedInterfacesContext, extractVerificationKeywords, applyVerification, reconcileSelfContradictions, stripResurrectionActions, CorrectionResponseSchema } from './correction.js';
 import type { CorrectionResponse, VerificationResponse } from './correction.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import type { AxisContext } from '../contract.js';
@@ -160,6 +160,52 @@ describe('renderCallersContext', () => {
     const out = renderCallersContext(createCtx({ usageGraph: emptyUsageGraph() }));
     expect(out.toLowerCase()).toContain('static imports only');
     expect(out.toLowerCase()).toMatch(/entry point|framework-invoked/);
+  });
+});
+
+describe('renderImportedInterfacesContext', () => {
+  it('returns empty string when no imported interfaces are present', () => {
+    expect(renderImportedInterfacesContext(createCtx())).toBe('');
+    expect(renderImportedInterfacesContext(createCtx({ importedInterfaces: [] }))).toBe('');
+  });
+
+  it('renders signature + summary per imported function (rule 16 grounding)', () => {
+    const out = renderImportedInterfacesContext(createCtx({
+      importedInterfaces: [
+        {
+          name: 'getDeviceCarrierFrequencies',
+          filePath: 'src/audio/device.ts',
+          signature: 'export function getDeviceCarrierFrequencies(d: Device): { binauralCarrier: number; isochronicCarrier: number }',
+          summary: 'returns the per-device binaural and isochronic carrier frequencies',
+        },
+      ],
+    }));
+    expect(out).toContain('## Imported symbols (interfaces)');
+    expect(out).toContain('getDeviceCarrierFrequencies');
+    expect(out).toContain('binauralCarrier');
+    expect(out).toContain('(src/audio/device.ts)');
+    expect(out).toContain('returns the per-device binaural');
+    // It frames the signature as source of truth for the symbol's I/O.
+    expect(out.toLowerCase()).toMatch(/source of truth/);
+  });
+
+  it('renders without a summary when none is available', () => {
+    const out = renderImportedInterfacesContext(createCtx({
+      importedInterfaces: [
+        { name: 'helper', filePath: 'src/util.ts', signature: 'export function helper(x: number): number' },
+      ],
+    }));
+    const line = out.split('\n').find((l) => l.startsWith('- '))!;
+    expect(line).toBe('- `export function helper(x: number): number` (src/util.ts)');
+  });
+
+  it('is wired into the correction user message when present', () => {
+    const msg = buildCorrectionUserMessage(createCtx({
+      importedInterfaces: [
+        { name: 'helper', filePath: 'src/util.ts', signature: 'function helper(): void' },
+      ],
+    }));
+    expect(msg).toContain('## Imported symbols (interfaces)');
   });
 });
 
@@ -611,6 +657,8 @@ describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => 
       expect(lower).toMatch(/prefer ok|abstain/);
       // Recall guard: rule 16 must not relax in-file domain/numerical reasoning.
       expect(lower).toMatch(/does not relax rules 4, 11 and 12|never to in-file values/);
+      // Lever A: rule 16 points at the imported-interfaces section as source of truth.
+      expect(lower).toContain('imported symbols (interfaces)');
     });
   }
 });

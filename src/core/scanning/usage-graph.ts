@@ -688,6 +688,38 @@ export function getTransitiveUsage(
   }).sort();
 }
 
+/**
+ * Invert the runtime-usage edges to answer the FORWARD question: which symbols
+ * does `importerFile` import, and from which project files? Returns
+ * `sourceFile → Set<symbolName>`. Type-only usages are excluded on purpose —
+ * the caller (correction's imported-interface context) hydrates each entry from
+ * RAG *function* cards, which exist for runtime functions/methods/hooks, not for
+ * imported types. Self-edges are skipped. The graph already resolved every
+ * import specifier to a concrete file when it built the reverse edges, so this
+ * needs no path resolver of its own.
+ */
+export function getImportedSymbolsBySource(
+  graph: UsageGraph,
+  importerFile: string,
+): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  for (const [key, importers] of graph.usages) {
+    if (!importers.has(importerFile)) continue;
+    const sep = key.lastIndexOf('::');
+    if (sep < 0) continue;
+    const symbol = key.slice(0, sep);
+    const sourceFile = key.slice(sep + 2);
+    if (!symbol || !sourceFile || sourceFile === importerFile) continue;
+    let set = out.get(sourceFile);
+    if (!set) {
+      set = new Set<string>();
+      out.set(sourceFile, set);
+    }
+    set.add(symbol);
+  }
+  return out;
+}
+
 /** Merge two importer lists into a sorted, de-duplicated list. */
 function mergeUsage(a: string[], b: string[]): string[] {
   if (b.length === 0) return a;

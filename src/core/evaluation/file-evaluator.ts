@@ -12,11 +12,11 @@ import { isRateLimitStandbyError } from '../../utils/rate-limiter.js';
 import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
 import type { ReviewFile, BestPractices } from '../../schemas/review.js';
-import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc } from './contract.js';
+import type { AxisContext, AxisEvaluator, AxisId, AxisResult, PreResolvedRag, RelevantDoc, ImportedSymbolInterface } from './contract.js';
 import type { TransportRouter } from '../transports/index.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { DependencyMeta } from '../scanning/index.js';
-import { extractFileDeps } from '../scanning/index.js';
+import { extractFileDeps, getImportedSymbolsBySource } from '../scanning/index.js';
 import type { VectorStore } from '../../rag/vector-store.js';
 import { buildFunctionId } from '../../rag/indexer.js';
 import { retrieveRelevantDocsForFile } from '../../rag/per-file-doc-retrieval.js';
@@ -138,6 +138,10 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
 
   // Pre-resolve RAG for duplication axis
   const preResolvedRag = await preResolveRag(task, opts);
+
+  // Resolve interfaces of imported project functions for the correction axis
+  // (signatures + summaries, so remediations reference real inputs/outputs).
+  const importedInterfaces = await resolveImportedInterfaces(task, usageGraph, opts);
 
   const fileDeps = opts.depMeta ? extractFileDeps(fileContent, opts.depMeta) : undefined;
 
@@ -291,6 +295,7 @@ export async function evaluateFile(opts: EvaluateFileOptions): Promise<EvaluateF
     projectRoot,
     usageGraph,
     preResolvedRag,
+    importedInterfaces,
     fileDeps,
     projectTree: opts.projectTree,
     testFileContent,
@@ -499,6 +504,50 @@ async function preResolveRag(task: Task, opts: EvaluateFileOptions): Promise<Pre
   }
 
   return preResolved.length > 0 ? preResolved : undefined;
+}
+
+/** Cap on imported-function interfaces injected per file (keeps the prompt bounded). */
+const MAX_IMPORTED_INTERFACES = 24;
+
+/**
+ * Resolve the interfaces (signature + behavioral summary) of the project
+ * functions this file imports, for the correction axis. The reverse usage graph
+ * already resolved every import specifier to a concrete file, so inverting it
+ * (via {@link getImportedSymbolsBySource}) yields the imported `(symbol,
+ * sourceFile)` pairs with no extra path resolution; RAG function cards then
+ * supply the signature + summary. RAG-off (no vector store) → undefined.
+ */
+async function resolveImportedInterfaces(
+  task: Task,
+  usageGraph: UsageGraph | undefined,
+  opts: EvaluateFileOptions,
+): Promise<ImportedSymbolInterface[] | undefined> {
+  if (!opts.ragEnabled || !opts.vectorStore || !usageGraph) return undefined;
+
+  const bySource = getImportedSymbolsBySource(usageGraph, task.file);
+  if (bySource.size === 0) return undefined;
+
+  const out: ImportedSymbolInterface[] = [];
+  for (const [sourceFile, symbols] of bySource) {
+    if (out.length >= MAX_IMPORTED_INTERFACES) break;
+    try {
+      const cards = await opts.vectorStore.getCardsByFile(sourceFile);
+      for (const card of cards) {
+        if (!symbols.has(card.name)) continue;
+        out.push({
+          name: card.name,
+          filePath: sourceFile,
+          signature: card.signature,
+          ...(card.summary ? { summary: card.summary } : {}),
+        });
+        if (out.length >= MAX_IMPORTED_INTERFACES) break;
+      }
+    } catch (err) {
+      contextLogger().warn({ sourceFile, file: task.file, err: String(err) }, 'imported-interface lookup failed');
+    }
+  }
+
+  return out.length > 0 ? out : undefined;
 }
 
 // ---------------------------------------------------------------------------

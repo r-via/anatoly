@@ -139,6 +139,39 @@ export function renderCallersContext(ctx: AxisContext): string {
   ].join('\n');
 }
 
+/**
+ * Render an "Imported symbols (interfaces)" section: the signature and
+ * behavioral summary of each project function this file imports, resolved by
+ * the file-evaluator from the reverse usage graph + RAG cards. Gives the model
+ * the real inputs/outputs of its dependencies so a remediation cannot invent a
+ * field or return value an imported symbol does not expose (rule 16's
+ * "derive-from-unshown-source" shape, e.g. theraphonia LiveSpectrumAnalyzer:
+ * "read deltaHz from getDeviceCarrierFrequencies()" when that function returns
+ * only carrier frequencies). Absent in RAG-off mode → returns ''.
+ */
+export function renderImportedInterfacesContext(ctx: AxisContext): string {
+  const ifaces = ctx.importedInterfaces;
+  if (!ifaces || ifaces.length === 0) return '';
+
+  const lines = ifaces.map((i) => {
+    const sig = i.signature?.trim() || i.name;
+    return `- \`${sig}\` (${i.filePath})${i.summary ? ` — ${i.summary}` : ''}`;
+  });
+
+  return [
+    '## Imported symbols (interfaces)',
+    '',
+    'Real signatures and behavior of the project functions this file imports.',
+    'Use them to keep remediations honest (rules 15 and 16): do not propose',
+    'reading or deriving a value from one of these symbols unless its signature',
+    'actually exposes it. A signature here is the source of truth for that',
+    "symbol's inputs and outputs — prefer it over assumptions from the call site.",
+    '',
+    ...lines,
+    '',
+  ].join('\n');
+}
+
 /** Assembles the user message for the correction axis, including source code and symbol list. */
 export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const parts: string[] = [];
@@ -161,6 +194,11 @@ export function buildCorrectionUserMessage(ctx: AxisContext): string {
   const callersSection = renderCallersContext(ctx);
   if (callersSection) {
     parts.push(callersSection);
+  }
+
+  const importedInterfacesSection = renderImportedInterfacesContext(ctx);
+  if (importedInterfacesSection) {
+    parts.push(importedInterfacesSection);
   }
 
   const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.arbitratedFragments);

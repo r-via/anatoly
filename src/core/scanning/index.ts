@@ -31,6 +31,7 @@ export {
   getSymbolUsage,
   getTypeOnlySymbolUsage,
   getTransitiveUsage,
+  getImportedSymbolsBySource,
   resolveExportedSymbolUtility,
 } from './usage-graph.js';
 export type { UsageGraph } from './usage-graph.js';

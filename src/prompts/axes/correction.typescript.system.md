@@ -153,9 +153,12 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     flags/fields "unrelated" or "independent" from their names alone (they may
     be kept in sync elsewhere); do not propose reading or deriving a value from
     an imported symbol whose return shape is not shown (the source may not
-    expose it); do not rest a finding on a platform/library API behavior you are
-    not highly confident of from rule 11. Prefer OK / no action, or say the fix
-    first requires confirming the unseen dependency. This does NOT relax rules
+    expose it) — when an `## Imported symbols (interfaces)` section is present,
+    its signatures are the source of truth for what each imported symbol exposes,
+    so check it before claiming one provides a value; do not rest a finding on a
+    platform/library API behavior you are not highly confident of from rule 11.
+    Prefer OK / no action, or say the fix first requires confirming the unseen
+    dependency. This does NOT relax rules
     4, 11 and 12: a suspicious in-file constant, formula, or logic you can
     challenge from domain knowledge or numerical self-validation is still a
     finding — abstention here applies only to claims about unseen *external*

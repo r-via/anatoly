@@ -39,6 +39,17 @@ export interface PreResolvedRagEntry {
 
 export type PreResolvedRag = PreResolvedRagEntry[];
 
+/** Interface of one project function imported by the file under review:
+ *  its name, the source file it lives in, its first-line signature, and the
+ *  RAG behavioral summary. Resolved from the reverse usage graph + RAG cards
+ *  so the correction axis can ground remediations in real inputs/outputs. */
+export interface ImportedSymbolInterface {
+  name: string;
+  filePath: string;
+  signature: string;
+  summary?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Core types
 // ---------------------------------------------------------------------------
@@ -76,6 +87,11 @@ export interface AxisContext {
   arbitratedFragments?: import('./axes/reference-docs-context.js').ArbitratedFragment[];
   /** Full path to conversations/ dir in the run dir (undefined = no dump) */
   conversationDir?: string;
+  /** Interfaces of project functions this file imports (name + signature +
+   *  behavioral summary), resolved from the reverse usage graph and RAG cards.
+   *  Lets the correction axis ground remediations in the real inputs/outputs of
+   *  imported symbols (rules 15/16). Absent in RAG-off mode. */
+  importedInterfaces?: ImportedSymbolInterface[];
   /** doc 19 PR 3 — per-call disambiguator (e.g. file slug "src-cli"). Becomes
    *  the `callId` segment of the harness-assigned dump slug
    *  `{phase}__{composer}__{primitive}__{callId}__{attempt}.md`. */
