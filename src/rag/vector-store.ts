@@ -12,6 +12,17 @@ import { getLogger } from '../utils/logger.js';
 const DEFAULT_TABLE_NAME = 'function_cards';
 
 /**
+ * Columns the function-upsert write path emits that were added after the
+ * original table schema. LanceDB fixes a table's Arrow schema at creation, so a
+ * table built by an older version lacks these and `table.add()` rejects new rows
+ * with "Found field not in schema". Detected during {@link VectorStore.init} and
+ * auto-healed (the index is a rebuildable cache). Extend this list whenever a
+ * new persisted column is introduced. `doc_vector` is intentionally excluded —
+ * it has its own warn-and-continue path tied to the separate docs-index flow.
+ */
+const REQUIRED_VECTOR_COLUMNS = ['referencedImports'] as const;
+
+/**
  * Identifies a RAG query's origin for observability. Every `search*` method on
  * {@link VectorStore} accepts an optional `RagQueryContext` and emits a
  * structured `rag.query` log event on completion: caller, parameters, latency,
@@ -225,7 +236,19 @@ export class VectorStore {
             });
           }
 
-          if (!('doc_vector' in sample[0])) {
+          // Schema drift: a column added in a later build is absent from a table
+          // created by an older one. The upsert write path emits it, so
+          // `table.add()` would fail with a cryptic "Found field not in schema".
+          // Auto-heal exactly like dimension drift. Skipped when the dim-drift
+          // handler already dropped the table (it will be recreated fresh).
+          if (this.table) {
+            const missingColumns = REQUIRED_VECTOR_COLUMNS.filter((c) => !(c in sample[0]));
+            if (missingColumns.length > 0) {
+              await this.handleSchemaDrift(missingColumns);
+            }
+          }
+
+          if (this.table && !('doc_vector' in sample[0])) {
             this.onLog(`⚠️ doc_vector column not found — run 'anatoly docs index --rebuild' for gap detection`);
           }
         }
@@ -270,6 +293,32 @@ export class VectorStore {
       this._cachedNlpDim = undefined;
     } else {
       this.onLog(`⚠️ embedding dim drift detected (${summary}) — run 'anatoly run --rebuild-rag' to fix, or set runtime.rag.rebuild_on_drift: true in .anatoly.yml for auto-healing`);
+    }
+  }
+
+  /**
+   * Resolve a stale-schema table (missing one or more columns the current write
+   * path emits). With `rebuildOnDrift` enabled the table is dropped and the
+   * local state reset so the next upsert recreates it with the current schema;
+   * otherwise the legacy warn behaviour is preserved and the operator must run
+   * `--rebuild-rag` (without it the subsequent upsert would fail at
+   * `table.add()`). The index is a derived cache, so dropping is non-destructive.
+   */
+  private async handleSchemaDrift(missingColumns: readonly string[]): Promise<void> {
+    const summary = missingColumns.join(', ');
+    const plural = missingColumns.length > 1 ? 's' : '';
+    if (this.rebuildOnDrift) {
+      this.onLog(`schema drift detected (table missing column${plural}: ${summary}) — auto-rebuilding LanceDB table (set runtime.rag.rebuild_on_drift to false in .anatoly.yml to keep stale data)`);
+      try {
+        await this.db!.dropTable(this.tableName);
+      } catch {
+        // Table may have been dropped concurrently — ignore.
+      }
+      this.table = null;
+      this._cachedCodeDim = undefined;
+      this._cachedNlpDim = undefined;
+    } else {
+      this.onLog(`⚠️ schema drift detected (table missing column${plural}: ${summary}) — run 'anatoly run --rebuild-rag' to fix, or set runtime.rag.rebuild_on_drift: true in .anatoly.yml for auto-healing`);
     }
   }
 

@@ -89,6 +89,7 @@ describe('VectorStore — dimension drift', () => {
       behavioralProfile: '',
       complexityScore: 0,
       calledInternals: '[]',
+      referencedImports: '[]',
       lastIndexed: '2024-01-01',
       vector: new Array(codeDim).fill(0.1),
       nlp_vector: new Array(nlpDim).fill(0.2),
@@ -147,5 +148,94 @@ describe('VectorStore — dimension drift', () => {
 
     // No opt-in → table preserved.
     expect(await listTables()).toContain('function_cards');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Schema drift handling — a column the write path emits is absent from an
+// older table (the referencedImports regression). Integration tests against a
+// real LanceDB store.
+// ---------------------------------------------------------------------------
+
+describe('VectorStore — schema drift (missing column)', () => {
+  let dir: string;
+  let dbPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'vs-schema-'));
+    dbPath = join(dir, '.anatoly', 'cache', 'rag', 'lancedb');
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  /**
+   * Seed an OLD-schema `function_cards` table: a function row WITHOUT the
+   * `referencedImports` column (added after this row shape shipped), at the
+   * default 768/384 dims so the ONLY drift is the missing column. When
+   * `withColumn` is true, the current schema is seeded instead.
+   */
+  async function seedTable(withColumn: boolean): Promise<void> {
+    mkdirSync(dbPath, { recursive: true });
+    const db = await connect(dbPath);
+    await db.createTable('function_cards', [{
+      id: 'aaaaaaaaaaaaaaaa',
+      filePath: 'src/foo.ts',
+      name: 'foo',
+      summary: '',
+      docSummary: '',
+      keyConcepts: '[]',
+      signature: '',
+      behavioralProfile: '',
+      complexityScore: 0,
+      calledInternals: '[]',
+      ...(withColumn ? { referencedImports: '[]' } : {}),
+      lastIndexed: '2024-01-01',
+      vector: new Array(768).fill(0.1),
+      nlp_vector: new Array(384).fill(0.2),
+      doc_vector: new Array(384).fill(0),
+      type: 'function',
+      source: '',
+    }]);
+  }
+
+  async function listTables(): Promise<string[]> {
+    const db = await connect(dbPath);
+    return db.tableNames();
+  }
+
+  it('drops the table when a required column is missing and rebuildOnDrift=true', async () => {
+    await seedTable(false);
+    expect(await listTables()).toContain('function_cards');
+
+    const logs: string[] = [];
+    const store = new VectorStore(dir, undefined, (m) => logs.push(m), true);
+    await store.init();
+
+    expect(await listTables()).not.toContain('function_cards');
+    expect(logs.some((m) => m.includes('schema drift detected') && m.includes('referencedImports') && m.includes('auto-rebuilding'))).toBe(true);
+  });
+
+  it('warns and preserves the table when rebuildOnDrift=false', async () => {
+    await seedTable(false);
+
+    const logs: string[] = [];
+    const store = new VectorStore(dir, undefined, (m) => logs.push(m), false);
+    await store.init();
+
+    expect(await listTables()).toContain('function_cards');
+    expect(logs.some((m) => m.includes('schema drift detected') && m.includes("'anatoly run --rebuild-rag'"))).toBe(true);
+  });
+
+  it('does not flag schema drift when the column is present', async () => {
+    await seedTable(true);
+
+    const logs: string[] = [];
+    const store = new VectorStore(dir, undefined, (m) => logs.push(m), true);
+    await store.init();
+
+    expect(await listTables()).toContain('function_cards');
+    expect(logs.some((m) => m.includes('schema drift detected'))).toBe(false);
   });
 });
