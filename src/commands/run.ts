@@ -21,7 +21,7 @@ import { findExternalConfigIssues } from '../rag/known-embedding-providers.js';
 import { detectHardware, resolveEmbeddingModels, readEmbeddingsReadyFlag, type ResolvedModels } from '../rag/hardware-detect.js';
 import { stopGgufContainers } from '../rag/docker-gguf.js';
 import { stopTeiContainers } from '../rag/docker-tei.js';
-import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD, readLatestPointer, listRuns } from '../utils/run-id.js';
+import { generateRunId, isValidRunId, createRunDir, countEmptyRuns, RUNS_REMOVE_EMPTY_CMD, readLatestPointer, listRuns, resolveRunDir } from '../utils/run-id.js';
 import { anatolyPath } from '../utils/anatoly-paths.js';
 import { runErrorLogPath, runEventLogPath } from '../utils/run-layout.js';
 import { getLogger, createFileLogger, flushFileLogger } from '../utils/logger.js';
@@ -40,7 +40,7 @@ import { AnthropicTransport } from '../core/transports/anthropic-transport.js';
 import { VercelSdkTransport } from '../core/transports/vercel-sdk-transport.js';
 import { printBanner } from '../utils/banner.js';
 import { printNotice } from '../utils/notice.js';
-import { buildRunConfig, writeRunConfig } from '../core/run/index.js';
+import { buildRunConfig, writeRunConfig, readRunConfig, resolveResumedScope, type RunConfig } from '../core/run/index.js';
 import { runInitSubprocess, writeFirstRunConfig, runRagSetup } from '../cli/setup-prompts.js';
 import { quickInitDocConfig } from '../core/documentation/index.js';
 import { type ProjectProfile } from '../core/scanning/index.js';
@@ -476,6 +476,10 @@ export function registerRunCommand(program: Command): void {
         return;
       }
       let resolvedRunId: string | undefined;
+      // The run-config snapshot of the run being resumed. Source of truth for
+      // the run-scoped scope filters (axes, file) so a resume continues the
+      // SAME audit instead of silently widening to the full config axis set.
+      let resumedRunConfig: RunConfig | null = null;
       if (cmdOpts.resume) {
         const runsDir = anatolyPath(projectRoot, 'runs');
         resolvedRunId = readLatestPointer(runsDir) ?? listRuns(projectRoot)[0];
@@ -492,10 +496,15 @@ export function registerRunCommand(program: Command): void {
         // prior partial run get another attempt automatically. The user can
         // still opt out by deleting/promoting individual statuses manually.
         cmdOpts.retryTimeout = true;
+        const resumedRunDir = resolveRunDir(projectRoot, resolvedRunId);
+        resumedRunConfig = resumedRunDir ? readRunConfig(resumedRunDir) : null;
+        const resumedAxesNote = resumedRunConfig?.axesFilter
+          ? ` | axes: ${resumedRunConfig.axesFilter.join(', ')}`
+          : '';
         printNotice({
           kind: 'info',
           title: `resuming run ${resolvedRunId}`,
-          hint: 'artifacts will be appended in-place; --retry-timeout implied',
+          hint: `artifacts will be appended in-place; --retry-timeout implied${resumedAxesNote}`,
         });
       }
 
@@ -581,7 +590,22 @@ export function registerRunCommand(program: Command): void {
       // Parse --axes filter (fail fast on invalid axis IDs)
       const axesResult = parseAxesOption(cmdOpts.axes);
       if (axesResult === null) return;
-      const axesFilter: AxisId[] | undefined = axesResult;
+      // On resume, restore the original axis/file scope from the resumed
+      // run-config when the user didn't pass an explicit override. Without this
+      // a resume loses the prior `--axes a,b,c` scope and re-expands to the full
+      // config axis set (a "3 axes → 7 axes" full re-diff). Explicit flags win.
+      const restoredScope = resolveResumedScope(resumedRunConfig, {
+        axesFilter: axesResult,
+        fileFilter: cmdOpts.file,
+      });
+      const axesFilter: AxisId[] | undefined = restoredScope.axesFilter;
+      if (axesResult === undefined && axesFilter) {
+        getLogger().info(`resume: restored axis filter ${axesFilter.join(', ')} from run-config`);
+      }
+      if (cmdOpts.file === undefined && restoredScope.fileFilter !== undefined) {
+        cmdOpts.file = restoredScope.fileFilter;
+        getLogger().info(`resume: restored file filter ${cmdOpts.file} from run-config`);
+      }
 
       // Flush deliberation memory if requested
       if (cmdOpts.flushMemory) {

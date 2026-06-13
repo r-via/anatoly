@@ -6,7 +6,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { mkdirSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { resolveDocMode, buildRunConfig, writeRunConfig, readRunConfig } from './run-config.js';
+import { resolveDocMode, buildRunConfig, writeRunConfig, readRunConfig, resolveResumedScope } from './run-config.js';
+import type { AxisId } from '../evaluation/contract.js';
 import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { ConfigSchema, type Config } from '../../schemas/config.js';
 
@@ -141,5 +142,63 @@ describe('cache flags in RunConfig', () => {
     const loaded = readRunConfig(testDir);
     expect(loaded?.cacheRefresh).toBe(true);
     expect(loaded?.noCache).toBe(false);
+  });
+
+  it('round-trips axesFilter + fileFilter through write + read', () => {
+    mkdirSync(join(testDir, '.anatoly'), { recursive: true });
+    const cfg = buildRunConfig({ ...baseInput, noCache: false, axesFilter: ['utility', 'duplication', 'correction'], fileFilter: 'src/**' });
+    writeRunConfig(testDir, cfg);
+    const loaded = readRunConfig(testDir);
+    expect(loaded?.axesFilter).toEqual(['utility', 'duplication', 'correction']);
+    expect(loaded?.fileFilter).toBe('src/**');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// resolveResumedScope — restore axis/file scope on --resume
+// ---------------------------------------------------------------------------
+//
+// Regression guard: a resume invoked without --axes/--file must inherit the
+// resumed run's scope, not silently widen to the full config axis set (the
+// "3 axes resumes as 7" full re-diff bug).
+
+describe('resolveResumedScope', () => {
+  const baseConfig: Config = parseTestConfig({
+    documentation: {
+      reference: { paths: ['README.md'], inline_comments: { enabled: false } },
+      internal: { mode: 'off' },
+    },
+  });
+  const makeConfig = (axesFilter?: AxisId[], fileFilter?: string) =>
+    buildRunConfig({
+      runId: 'r1', projectRoot: '/p', concurrency: 4, ragMode: 'auto', enableRag: true,
+      noCache: false, deliberation: false, dryRun: false, badge: { enabled: false, verdict: false },
+      config: baseConfig, axesFilter, fileFilter,
+    });
+
+  it('restores axesFilter from the resumed run when the current run sets none', () => {
+    const resumed = makeConfig(['utility', 'duplication', 'correction']);
+    const scope = resolveResumedScope(resumed, { axesFilter: undefined, fileFilter: undefined });
+    expect(scope.axesFilter).toEqual(['utility', 'duplication', 'correction']);
+  });
+
+  it('lets an explicit current --axes override the resumed scope', () => {
+    const resumed = makeConfig(['utility', 'duplication', 'correction']);
+    const scope = resolveResumedScope(resumed, { axesFilter: ['tests'], fileFilter: undefined });
+    expect(scope.axesFilter).toEqual(['tests']);
+  });
+
+  it('restores fileFilter and normalizes a null persisted filter to undefined', () => {
+    const resumed = makeConfig(undefined, 'src/engine.ts');
+    const scope = resolveResumedScope(resumed, { axesFilter: undefined, fileFilter: undefined });
+    expect(scope.fileFilter).toBe('src/engine.ts');
+    // a resumed run with no axis filter (null in run-config) must stay undefined,
+    // not become null — otherwise the full-set default path is bypassed
+    expect(scope.axesFilter).toBeUndefined();
+  });
+
+  it('passes the current scope through untouched when there is nothing to resume', () => {
+    const scope = resolveResumedScope(null, { axesFilter: ['tests'], fileFilter: 'a.ts' });
+    expect(scope).toEqual({ axesFilter: ['tests'], fileFilter: 'a.ts' });
   });
 });

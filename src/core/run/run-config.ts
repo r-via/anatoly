@@ -109,6 +109,33 @@ export function buildRunConfig(input: BuildRunConfigInput): RunConfig {
   };
 }
 
+/** The run-scoped scope filters a resume must carry over from the prior run. */
+export interface ResumedScope {
+  axesFilter: AxisId[] | undefined;
+  fileFilter: string | undefined;
+}
+
+/**
+ * Resolve the axis/file scope of a resumed run.
+ *
+ * `--resume` reuses the prior run's id but the CLI re-parses scope flags from
+ * scratch, so a resume invoked without `--axes`/`--file` would silently widen
+ * back to the full config axis set and whole tree (the "3 axes resumes as 7"
+ * full re-diff). This restores the persisted scope, while letting an explicit
+ * flag on the resume command still win.
+ *
+ * @param resumed The run-config of the run being resumed, or null (legacy run /
+ *                not a resume) — in which case `current` passes through.
+ * @param current Scope parsed from THIS invocation's flags (undefined = unset).
+ */
+export function resolveResumedScope(resumed: RunConfig | null, current: ResumedScope): ResumedScope {
+  if (!resumed) return current;
+  return {
+    axesFilter: current.axesFilter ?? resumed.axesFilter ?? undefined,
+    fileFilter: current.fileFilter ?? resumed.fileFilter ?? undefined,
+  };
+}
+
 export function writeRunConfig(runDir: string, config: RunConfig): void {
   writeFileSync(runConfigPath(runDir), JSON.stringify(config, null, 2));
 }
