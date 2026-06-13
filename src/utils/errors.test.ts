@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect } from 'vitest';
-import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isRateLimitTranscriptMessage, parseRateLimitResetTime, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure } from './errors.js';
+import { AnatolyError, ERROR_CODES, isAuthFailureMessage, isRateLimitTranscriptMessage, parseRateLimitResetTime, isFatalAuthError, authError, circuitOpenError, isCircuitOpenError, isProviderHealthFailure, isRateLimitFailure } from './errors.js';
 
 describe('AnatolyError', () => {
   it('should create an error with code and recoverable flag', () => {
@@ -249,6 +249,41 @@ describe('circuitOpenError / isCircuitOpenError', () => {
     expect(isCircuitOpenError(new Error("Provider 'anthropic' circuit breaker is open"))).toBe(true);
     expect(isCircuitOpenError(new AnatolyError('x', ERROR_CODES.SDK_ERROR, true))).toBe(false);
     expect(isCircuitOpenError(undefined)).toBe(false);
+  });
+
+  it('reason="rate_limit" yields a quota-exhausted message + a --resume hint', () => {
+    const err = circuitOpenError('anthropic', 'rate_limit');
+    expect(err.code).toBe(ERROR_CODES.CIRCUIT_OPEN);
+    expect(err.recoverable).toBe(false);
+    expect(err.message.toLowerCase()).toContain('quota');
+    expect(err.message).toContain('anthropic');
+    expect(err.hint).toContain('anatoly run --resume');
+    // Still recognised as a circuit-open error by the guard.
+    expect(isCircuitOpenError(err)).toBe(true);
+  });
+
+  it('reason defaults to the generic health message', () => {
+    expect(circuitOpenError('anthropic').message).toContain('circuit breaker is open');
+    expect(circuitOpenError('anthropic', 'health').message).toContain('circuit breaker is open');
+  });
+});
+
+describe('isRateLimitFailure', () => {
+  it('detects 429 / rate-limit phrasings in the error message', () => {
+    expect(isRateLimitFailure(new Error('API Error: 429 Too Many Requests'))).toBe(true);
+    expect(isRateLimitFailure(new Error('rate limit reached'))).toBe(true);
+    expect(isRateLimitFailure(new Error("you've hit your limit; resets 11:20am"))).toBe(true);
+  });
+
+  it('detects rate-limit text carried in an AnatolyError detail (SDK transcript)', () => {
+    const err = new AnatolyError('Claude Code SDK query failed', ERROR_CODES.SDK_ERROR, true, undefined, 'API Error: 429 rate_limit_error');
+    expect(isRateLimitFailure(err)).toBe(true);
+  });
+
+  it('returns false for generic / non-rate-limit failures', () => {
+    expect(isRateLimitFailure(new Error('500 Internal Server Error'))).toBe(false);
+    expect(isRateLimitFailure(new Error('ECONNRESET'))).toBe(false);
+    expect(isRateLimitFailure(undefined)).toBe(false);
   });
 });
 

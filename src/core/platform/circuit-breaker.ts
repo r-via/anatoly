@@ -33,6 +33,7 @@ export class CircuitBreaker {
   private trippedAt?: number;
   private _warningEmitted = false;
   private _halfOpenProbeInFlight = false;
+  private _lastFailureRateLimited = false;
 
   private readonly failureThreshold: number;
   private readonly halfOpenDelayMs: number;
@@ -84,6 +85,7 @@ export class CircuitBreaker {
   recordSuccess(): void {
     this.consecutiveFailures = 0;
     this._halfOpenProbeInFlight = false;
+    this._lastFailureRateLimited = false;
     if (this._state === 'half-open') {
       this._state = 'closed';
       this.trippedAt = undefined;
@@ -92,12 +94,25 @@ export class CircuitBreaker {
   }
 
   /**
-   * Record a failed call. Returns `true` if this failure caused the
-   * breaker to trip (or re-trip from half-open).
+   * Why the breaker is (or last) tripped: `rate_limit` when the most recent
+   * failure looked like a 429 / quota / rate-limit rejection, else `health`
+   * (5xx, network, unknown). Drives the user-facing message: a quota trip means
+   * "wait for the quota to reset and resume", a health trip means "the provider
+   * is degraded". Meaningful when {@link isOpen} is true.
    */
-  recordFailure(): boolean {
+  openReason(): 'rate_limit' | 'health' {
+    return this._lastFailureRateLimited ? 'rate_limit' : 'health';
+  }
+
+  /**
+   * Record a failed call. Returns `true` if this failure caused the
+   * breaker to trip (or re-trip from half-open). `rateLimited` flags the
+   * failure as a 429/quota rejection so {@link openReason} can explain the trip.
+   */
+  recordFailure(rateLimited = false): boolean {
     this.consecutiveFailures++;
     this._halfOpenProbeInFlight = false;
+    this._lastFailureRateLimited = rateLimited;
 
     if (this._state === 'half-open') {
       this._state = 'open';

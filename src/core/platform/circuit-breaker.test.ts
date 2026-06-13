@@ -224,4 +224,40 @@ describe('CircuitBreaker', () => {
     expect(cb.isOpen()).toBe(false);
   });
 
+  // -----------------------------------------------------------------------
+  // openReason — quota vs generic-health trip
+  // -----------------------------------------------------------------------
+
+  it('openReason is rate_limit when the tripping failures were rate-limited', () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure(true);
+    cb.recordFailure(true);
+    cb.recordFailure(true);
+    expect(cb.isOpen()).toBe(true);
+    expect(cb.openReason()).toBe('rate_limit');
+  });
+
+  it('openReason is health for generic failures (default)', () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure();
+    cb.recordFailure();
+    cb.recordFailure();
+    expect(cb.openReason()).toBe('health');
+  });
+
+  it('openReason reflects the most recent failure classification', () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure(true);
+    cb.recordFailure(false); // latest = generic
+    cb.recordFailure(false);
+    expect(cb.openReason()).toBe('health');
+  });
+
+  it('recordSuccess resets openReason to health', () => {
+    const cb = new CircuitBreaker();
+    cb.recordFailure(true);
+    cb.recordSuccess();
+    expect(cb.openReason()).toBe('health');
+  });
+
 });

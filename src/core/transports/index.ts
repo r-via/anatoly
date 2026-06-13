@@ -63,7 +63,7 @@ import { Semaphore } from '../platform/index.js';
 import { CircuitBreaker, type CircuitState } from '../platform/index.js';
 import { retryWithBackoff } from '../../utils/rate-limiter.js';
 import { extractJson } from '../../utils/extract-json.js';
-import { circuitOpenError, isProviderHealthFailure } from '../../utils/errors.js';
+import { circuitOpenError, isProviderHealthFailure, isRateLimitFailure } from '../../utils/errors.js';
 import { maybeWrapTransport } from './recording-transport.js';
 
 /**
@@ -233,7 +233,7 @@ export class TransportRouter {
     const breaker = this.breakers.get(providerId);
 
     if (breaker?.shouldFallback()) {
-      throw circuitOpenError(providerId);
+      throw circuitOpenError(providerId, breaker.openReason());
     }
 
     const sem = this.semaphores.get(providerId);
@@ -254,7 +254,7 @@ export class TransportRouter {
             // breaker that then guts the review phase. When no error is
             // supplied, default to counting it (preserve protection).
             if (opts.error === undefined || isProviderHealthFailure(opts.error)) {
-              breaker.recordFailure();
+              breaker.recordFailure(isRateLimitFailure(opts.error));
             }
           } else {
             breaker.recordSuccess();

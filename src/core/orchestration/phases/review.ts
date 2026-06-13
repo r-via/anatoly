@@ -108,11 +108,17 @@ export async function runReviewPhase(
   // every axis on every file and silently produce a report whose
   // un-evaluated axes render as "clean". Stop the run with an actionable
   // error instead of publishing a misleading green report.
-  const openProviders = ctx.router
-    ? [...ctx.router.breakers.entries()].filter(([, b]) => b.isOpen()).map(([id]) => id)
+  const openBreakers = ctx.router
+    ? [...ctx.router.breakers.entries()].filter(([, b]) => b.isOpen())
     : [];
-  if (openProviders.length > 0) {
-    requestFatalStop(ctx, circuitOpenError(openProviders.join(', ')));
+  if (openBreakers.length > 0) {
+    const openProviders = openBreakers.map(([id]) => id);
+    // If any open breaker tripped on quota/rate-limit, surface the actionable
+    // "exhausted, resume later" message rather than the generic health one.
+    const reason = openBreakers.some(([, b]) => b.openReason() === 'rate_limit')
+      ? 'rate_limit'
+      : 'health';
+    requestFatalStop(ctx, circuitOpenError(openProviders.join(', '), reason));
     return;
   }
 

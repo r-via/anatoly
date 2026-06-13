@@ -41,7 +41,7 @@ const DEFAULT_HINTS: Partial<Record<ErrorCode, string>> = {
   NLP_SUMMARIZATION_FAILED: 'NLP summarization LLM call failed — check provider config and API keys',
   PROVIDER_AUTH_FAILED: 'check provider API keys and authentication — see anatoly providers for status',
   PRICING_INCOMPLETE: 'one or more configured models have no pricing entry — run `anatoly providers` for details, or remove the offending models from .anatoly.yml',
-  CIRCUIT_OPEN: 'the provider had repeated genuine failures and the circuit opened — check provider health/quota (anatoly providers) and re-run',
+  CIRCUIT_OPEN: 'the provider had repeated failures and the circuit opened — check provider health/quota (anatoly providers); work done so far is saved, resume it with: anatoly run --resume',
   AXES_ALL_FAILED: 'every axis evaluator crashed for this file — it was not cached and will be re-reviewed next run; check provider health (anatoly providers)',
 };
 
@@ -289,8 +289,42 @@ export function authError(provider: string, detail?: string): AnatolyError {
 // Circuit breaker
 // ---------------------------------------------------------------------------
 
-/** The canonical "provider circuit breaker is open" error. */
-export function circuitOpenError(providerId: string): AnatolyError {
+/**
+ * Whether a provider failure looks like a 429 / quota / rate-limit rejection
+ * (as opposed to generic degradation: 5xx, network, unknown). Used to label an
+ * opened circuit breaker so the user gets a "quota exhausted, resume later"
+ * message instead of a generic "provider unhealthy" one. Text-based: inspects
+ * the error message and, for an {@link AnatolyError}, its detail (the SDK
+ * transcript), reusing {@link isRateLimitTranscriptMessage}. Kept text-only to
+ * avoid a circular import with the rate-limiter.
+ */
+export function isRateLimitFailure(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  if (isRateLimitTranscriptMessage(msg)) return true;
+  if (err instanceof AnatolyError && isRateLimitTranscriptMessage(err.detail)) return true;
+  return false;
+}
+
+/**
+ * The canonical "provider circuit breaker is open" error.
+ *
+ * When `reason` is `rate_limit` the breaker tripped on repeated 429 / quota
+ * responses: the message and hint tell the user the quota is exhausted and the
+ * run can be resumed once it resets (`anatoly run --resume` reuses this run and
+ * skips completed files). Otherwise it is a generic provider-health trip.
+ */
+export function circuitOpenError(
+  providerId: string,
+  reason: 'rate_limit' | 'health' = 'health',
+): AnatolyError {
+  if (reason === 'rate_limit') {
+    return new AnatolyError(
+      `Provider '${providerId}' quota / rate limit exhausted — the circuit opened after repeated rate-limit responses and the run was stopped to avoid burning retries. Work done so far is saved.`,
+      ERROR_CODES.CIRCUIT_OPEN,
+      false,
+      'API quota / rate limit exhausted — once it resets, resume this run (it skips files already completed) with: anatoly run --resume',
+    );
+  }
   return new AnatolyError(
     `Provider '${providerId}' circuit breaker is open`,
     ERROR_CODES.CIRCUIT_OPEN,
