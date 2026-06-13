@@ -115,6 +115,7 @@ describe('VectorStore — dimension drift', () => {
 
     expect(await listTables()).not.toContain('function_cards');
     expect(logs.some((m) => m.includes('drift detected') && m.includes('auto-rebuilding'))).toBe(true);
+    expect(store.wasTableReset()).toBe(true);
   });
 
   it('preserves the table when rebuildOnDrift=false (warn-only legacy behavior)', async () => {
@@ -215,6 +216,8 @@ describe('VectorStore — schema drift (missing column)', () => {
 
     expect(await listTables()).not.toContain('function_cards');
     expect(logs.some((m) => m.includes('schema drift detected') && m.includes('referencedImports') && m.includes('auto-rebuilding'))).toBe(true);
+    // Signals the orchestrator to purge the stale index cache before re-indexing.
+    expect(store.wasTableReset()).toBe(true);
   });
 
   it('warns and preserves the table when rebuildOnDrift=false', async () => {
@@ -226,6 +229,7 @@ describe('VectorStore — schema drift (missing column)', () => {
 
     expect(await listTables()).toContain('function_cards');
     expect(logs.some((m) => m.includes('schema drift detected') && m.includes("'anatoly run --rebuild-rag'"))).toBe(true);
+    expect(store.wasTableReset()).toBe(false);
   });
 
   it('does not flag schema drift when the column is present', async () => {
@@ -237,5 +241,6 @@ describe('VectorStore — schema drift (missing column)', () => {
 
     expect(await listTables()).toContain('function_cards');
     expect(logs.some((m) => m.includes('schema drift detected'))).toBe(false);
+    expect(store.wasTableReset()).toBe(false);
   });
 });

@@ -390,6 +390,18 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     const { saveDocCacheToRagCache: saveDc } = await import('./doc-indexer.js');
     saveDc(projectRoot, cacheSuffix, {});
     saveDc(projectRoot, `${cacheSuffix}-internal`, {});
+  } else if (store.wasTableReset()) {
+    // init() auto-healed a drifted / stale-schema table by dropping it. The
+    // on-disk index cache now points at cards that no longer exist, so without
+    // purging it the filter below would skip every "already cached" function
+    // and leave the freshly emptied table without cards. Purge the code + doc
+    // index caches (same as --rebuild-rag); the NLP summary cache is preserved
+    // (content-hash keyed) so summaries are reused rather than re-generated.
+    onLog?.('rag cache purge: table was auto-rebuilt during init (drift) — forcing full re-index');
+    saveRagCache(projectRoot, { entries: {} }, cacheSuffix);
+    const { saveDocCacheToRagCache: saveDc } = await import('./doc-indexer.js');
+    saveDc(projectRoot, cacheSuffix, {});
+    saveDc(projectRoot, `${cacheSuffix}-internal`, {});
   }
 
   const cache = loadRagCache(projectRoot, cacheSuffix);
@@ -531,6 +543,15 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
         result.costUsd = costUsd;
         result.functionBodies = undefined; // free memory
 
+        // Stream the NLP summary cache immediately so an interrupt never
+        // discards the (paid) LLM summaries for this file. atomicWriteJson makes
+        // the concurrent writes safe; each writes the full, monotonically
+        // growing cache, so the last writer always persists a superset.
+        if (nlpCacheUpdates && Object.keys(nlpCacheUpdates).length > 0) {
+          Object.assign(nlpSummaryCache.entries, nlpCacheUpdates);
+          saveNlpSummaryCache(projectRoot, nlpSummaryCache);
+        }
+
         if (nlpFailedIds.size > 0) {
           const failedNames = result.cards.filter((c) => nlpFailedIds.has(c.id)).map((c) => c.name);
           onLog?.(`⚠ ${result.task.file}: ${nlpFailedIds.size}/${result.cards.length} functions failed NLP summarization (${failedNames.join(', ')}) — will retry next run`);
@@ -542,32 +563,38 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
       },
     });
 
-    // Step 2 — NLP + doc embeddings (sequential to avoid swapping GGUF containers)
-    onLog?.(`embedding summaries for ${results.length} files...`);
-    for (const result of results) {
-      if (result.cards.length > 0 && !result.nlpEmbeddings) {
-        result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
-        result.docEmbeddings = await generateDocEmbeddings(result.cards);
-      }
-    }
-    onLog?.('NLP phase complete');
+    onLog?.('NLP summaries complete');
   }
 
-  // Batch upsert all accumulated results sequentially
+  // Embed + upsert + persist, one file at a time. The cache is streamed (atomic
+  // write) after EVERY file so an interrupted run RESUMES instead of restarting:
+  // a file whose cards are in the table AND whose id→hash entry is on disk is
+  // filtered out of tasksToIndex on the next run. NLP summaries were already
+  // streamed per file above, so an interrupt never re-pays the LLM cost.
+  // Embeddings stay sequential to avoid swapping GGUF containers per file.
   onPhase?.('upsert');
-  onLog?.(`upserting ${results.length} file results to ${tableName}`);
+  onLog?.(`embedding + upserting ${results.length} file results to ${tableName}`);
   let cardsIndexed = 0;
   let filesIndexed = 0;
   let ragCostUsd = 0;
-
-  // Accumulate NLP summarization costs from file processing
-  for (const r of results) {
-    ragCostUsd += r.costUsd ?? 0;
-  }
-
+  let upsertCounter = 0;
   for (const result of results) {
-    // Delete all existing cards for this file first to remove stale entries
-    // (e.g. functions that were removed or renamed since last indexing)
+    // Stop cleanly on interrupt: everything upserted so far is already persisted
+    // (cache streamed per file), so the next run resumes from here.
+    if (isInterrupted()) break;
+    ragCostUsd += result.costUsd ?? 0;
+    upsertCounter++;
+    if (result.cards.length === 0) {
+      onProgress?.(upsertCounter, results.length);
+      continue;
+    }
+
+    if (!result.nlpEmbeddings) {
+      result.nlpEmbeddings = await generateNlpEmbeddings(result.cards);
+      result.docEmbeddings = await generateDocEmbeddings(result.cards);
+    }
+
+    // Delete stale cards for this file (removed/renamed functions), then upsert.
     await store.deleteByFile(result.task.file);
     await store.upsert(result.cards, result.embeddings, {
       nlpEmbeddings: result.nlpEmbeddings,
@@ -576,25 +603,19 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     cardsIndexed += result.cards.length;
     filesIndexed++;
 
-    // Update cache entries for this file's cards.
-    // Skip cards where NLP failed (zero vector) so they
-    // get retried on the next run instead of being served stale.
+    // Stream this file's cache entries now. Skip NLP-failed cards (zero vector)
+    // so they retry next run instead of being served stale.
     for (const card of result.cards) {
       if (result.nlpFailedIds?.has(card.id)) continue;
       cache.entries[card.id] = result.task.hash;
     }
+    saveRagCache(projectRoot, cache, cacheSuffix);
+    onProgress?.(upsertCounter, results.length);
   }
 
-  // Single atomic cache write for all results
+  // Final safety write (the cache was already streamed per file above).
   if (results.length > 0) {
     saveRagCache(projectRoot, cache, cacheSuffix);
-
-    // Merge and save NLP summary cache updates
-    for (const result of results) {
-      if (result.nlpCacheUpdates) {
-        Object.assign(nlpSummaryCache.entries, result.nlpCacheUpdates);
-      }
-    }
     saveNlpSummaryCache(projectRoot, nlpSummaryCache);
   }
 

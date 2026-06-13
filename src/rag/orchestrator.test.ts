@@ -44,6 +44,7 @@ vi.mock('./vector-store.js', () => {
     }
     init = vi.fn().mockResolvedValue(undefined);
     rebuild = vi.fn().mockResolvedValue(undefined);
+    wasTableReset = vi.fn().mockReturnValue(false);
     upsert = vi.fn().mockResolvedValue(undefined);
     listIndexedFiles = vi.fn().mockResolvedValue(new Set<string>());
     deleteByFile = vi.fn().mockResolvedValue(undefined);

@@ -175,6 +175,13 @@ export class VectorStore {
   private onLog: (message: string) => void = () => {};
   private _cachedCodeDim: number | undefined;
   private _cachedNlpDim: number | undefined;
+  /**
+   * Set when {@link init} auto-healed a drifted/stale-schema table by dropping
+   * it. The on-disk index cache then points at cards that no longer exist, so
+   * the indexing orchestrator must purge that cache before re-indexing —
+   * otherwise "already cached" functions are skipped into an empty table.
+   */
+  private tableReset = false;
 
   constructor(
     projectRoot: string,
@@ -289,6 +296,7 @@ export class VectorStore {
         // Table may have been dropped concurrently — ignore.
       }
       this.table = null;
+      this.tableReset = true;
       this._cachedCodeDim = undefined;
       this._cachedNlpDim = undefined;
     } else {
@@ -315,11 +323,22 @@ export class VectorStore {
         // Table may have been dropped concurrently — ignore.
       }
       this.table = null;
+      this.tableReset = true;
       this._cachedCodeDim = undefined;
       this._cachedNlpDim = undefined;
     } else {
       this.onLog(`⚠️ schema drift detected (table missing column${plural}: ${summary}) — run 'anatoly run --rebuild-rag' to fix, or set runtime.rag.rebuild_on_drift: true in .anatoly.yml for auto-healing`);
     }
+  }
+
+  /**
+   * True when {@link init} dropped the table to auto-heal dimension or schema
+   * drift. The indexing orchestrator uses this to purge the on-disk index cache
+   * before re-indexing, so every card is re-added rather than skipped as
+   * "already cached" into the freshly emptied table.
+   */
+  wasTableReset(): boolean {
+    return this.tableReset;
   }
 
   /**
