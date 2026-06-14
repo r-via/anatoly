@@ -29,7 +29,7 @@
  */
 
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { resolve, posix as posixPath } from 'node:path';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { getLogger } from '../../../utils/logger.js';
@@ -67,7 +67,11 @@ const INVARIANT_RULESET =
   'inter_representation/v1: two code symbols compute the SAME named quantity ' +
   'but disagree in value or direction; candidate requires a high code+nlp ' +
   'cosine match AND a divergent numeric/sign literal in the two bodies; the ' +
-  'judge confirms ONLY a genuine same-quantity contradiction, else no finding.';
+  'judge confirms ONLY a genuine same-quantity contradiction, else no finding. ' +
+  'numerical_target/v1: a documented numeric target (in a function comment) ' +
+  'plus the contributing numeric constant tables it depends on (the consuming ' +
+  'formula is excluded) are handed to a rule-12 derivation judge that confirms ' +
+  'ONLY an order-of-magnitude inconsistency between a constant and the target.';
 
 /** Hybrid-search cosine floor — high so only strong same-concept neighbours pass. */
 const MIN_HYBRID_SCORE = 0.82;
@@ -77,6 +81,19 @@ const MAX_CANDIDATES = 10;
 const JUDGE_BATCH_SIZE = 10;
 /** Drop any judge finding below this confidence (FP-safety floor). */
 const MIN_CONFIDENCE = 70;
+
+/**
+ * A dependency file qualifies as a "numeric constant table" only when it
+ * declares an object/array-literal const AND carries at least this many
+ * DISTINCT numeric literals (0/1 excluded). High enough that small config
+ * files (a lone freespin count, a single jackpot seed) fall below it; the
+ * fixture's weight + paytable tables clear it comfortably.
+ */
+const MIN_TABLE_LITERALS = 5;
+/** Hard cap on numeric-target seeds processed per run (cost + prompt-size bound). */
+const MAX_NUMERIC_SEEDS = 5;
+/** Per-dependency-file source cap (lines) folded into a numeric bundle. */
+const MAX_DEP_FILE_LINES = 400;
 
 // ---------------------------------------------------------------------------
 // Candidate pair (code-vs-code)
@@ -144,6 +161,70 @@ const JUDGE_SYSTEM_PROMPT =
   'positive here is far worse than a miss. Do NOT invent contradictions, do ' +
   'NOT compare code against documentation (out of scope), and only report a ' +
   'symbol that appears in the candidate pairs given.';
+
+// ---------------------------------------------------------------------------
+// Numerical-target invariant (code-vs-doc numerical)
+// ---------------------------------------------------------------------------
+
+/** A reviewed function whose leading comment documents a numeric target. */
+interface NumericalSeed {
+  file: string;
+  symbol: string;
+  /** The leading comment text carrying the documented target. */
+  documentation: string;
+  /** Project-relative dependency files (imported by the seed file) that hold a numeric table. */
+  depFiles: string[];
+}
+
+/** A judge-ready numeric bundle: a documented target + its contributing tables. */
+interface NumericalBundle {
+  seed: NumericalSeed;
+  /** depFile -> source slice handed to the judge. */
+  depSources: Map<string, string>;
+}
+
+/**
+ * The numeric judge returns a (possibly empty) `findings` array. Each entry
+ * anchors the offending constant to the dependency file/symbol it lives in.
+ * EMPTY is the default and correct answer when every constant is consistent
+ * with the documented target (or cannot be derived) — the prompt makes that
+ * explicit.
+ */
+const NumericalJudgeResponseSchema = z.object({
+  findings: z.array(z.object({
+    file: z.string(),
+    symbol: z.string(),
+    line_start: z.int().min(1),
+    line_end: z.int().min(1),
+    confidence: z.int().min(0).max(100),
+    detail: z.string().min(10),
+  })).default([]),
+});
+
+type NumericalJudgeResponse = z.infer<typeof NumericalJudgeResponseSchema>;
+
+const NUMERICAL_JUDGE_SYSTEM_PROMPT =
+  'You are an adversarial reviewer checking NUMERICAL-TARGET CONSISTENCY. You ' +
+  'are given (1) a DOCUMENTED numeric target stated in a function comment and ' +
+  '(2) the contributing numeric constant tables that feed that target. The ' +
+  'consuming formula is intentionally withheld — judge the CONSTANTS against ' +
+  'the documented target only.\n\n' +
+  'Apply rule-12 derivation:\n' +
+  '- FORWARD: from the constants, derive the implied value of the documented ' +
+  'quantity and compare its ORDER OF MAGNITUDE to the target.\n' +
+  '- BACKWARD: from the target, derive what the constant WOULD need to be and ' +
+  'compare to the actual value.\n' +
+  '- SANITY: check internal self-consistency (relative magnitudes, the usual ' +
+  'rare-pays-more / common-pays-less relationship, totals).\n\n' +
+  'Confirm a finding ONLY when a specific constant is off by roughly an ORDER ' +
+  'OF MAGNITUDE (or more) such that the documented target is mathematically ' +
+  'unreachable. DEFAULT TO NO FINDING: if the constants are plausibly ' +
+  'consistent with the target, if you cannot derive the relationship, or if ' +
+  'the discrepancy is small / within normal tuning, return an EMPTY findings ' +
+  'array. A false positive is far worse than a miss. Anchor each finding to ' +
+  'the exact file and symbol of the offending constant (use a dotted path ' +
+  'like `TABLE_NAME.KEY` when the offender is one entry of a table). Only ' +
+  'report constants from the tables given; never invent a target or a formula.';
 
 // ---------------------------------------------------------------------------
 // Phase
@@ -221,9 +302,14 @@ export async function runInvariantsPhase(
     codeWeight: ctx.config.rag.code_weight,
   });
 
-  if (candidates.length === 0) {
+  // (d.2) NUMERICAL-TARGET MATCHER (no LLM): surface documented-target +
+  // contributing-constant-table bundles (code-vs-doc numerical). Independent
+  // of the RAG code-vs-code matcher — pure source + import parsing.
+  const numericBundles = buildNumericalCandidates({ reviews, reviewByFile, fileContent, fileFresh });
+
+  if (candidates.length === 0 && numericBundles.length === 0) {
     ctx.pipelineState?.completeTask('invariants', 'clean');
-    log.info('invariants: no candidate pairs surfaced — phase clean');
+    log.info('invariants: no candidate pairs or numeric bundles surfaced — phase clean');
     return;
   }
 
@@ -292,6 +378,74 @@ export async function runInvariantsPhase(
     }
   }
 
+  // (e.2) NUMERICAL-TARGET JUDGE — one rule-12 derivation call per bundle.
+  // Each confirmed finding is anchored cross-file to a REVIEWED symbol in the
+  // dependency file the judge named (the offending constant table). Exactly
+  // ONE finding per anchor file (a 2nd correction NEEDS_FIX on the same file
+  // is a false positive under the bench's bipartite matching).
+  const numericByFile = new Map<string, { file: string; symbol: string; finding: InvariantFinding }>();
+  for (const bundle of numericBundles) {
+    if (ctx.interrupted) { aborted = true; break; }
+    const abortController = new AbortController();
+    ctx.activeAborts.add(abortController);
+    try {
+      const userMessage = buildNumericalUserMessage(bundle);
+      const result = await runSingleTurnQuery<NumericalJudgeResponse>(
+        {
+          systemPrompt: NUMERICAL_JUDGE_SYSTEM_PROMPT,
+          userMessage,
+          model: judgeModel,
+          projectRoot: ctx.projectRoot,
+          abortController,
+          conversationDir,
+          router: ctx.router,
+          composer: 'phases.invariants',
+          primitive: 'phases.invariants',
+          timeoutMs: ctx.config.runtime.timeout_per_call * 1000,
+        },
+        NumericalJudgeResponseSchema,
+      );
+      recordLlmCost(ctx, {
+        provider: 'anthropic',
+        phase: 'invariants',
+        costUsd: result.costUsd,
+        durationMs: result.durationMs,
+        calls: 1,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        cacheReadTokens: result.cacheReadTokens,
+        cacheCreationTokens: result.cacheCreationTokens,
+      });
+
+      const depFiles = new Set(bundle.depSources.keys());
+      for (const f of result.data.findings) {
+        if (f.confidence < MIN_CONFIDENCE) continue; // FP-safety floor
+        // The judge may only flag a constant from a table actually in the bundle.
+        if (!depFiles.has(f.file)) continue;
+        const anchor = resolveNumericAnchor(reviewByFile.get(f.file), f.symbol);
+        if (!anchor) continue; // no clean (correction OK/'-') reviewed symbol ⇒ drop
+        const finding: InvariantFinding = {
+          invariant: 'numerical_target',
+          line_start: f.line_start,
+          line_end: f.line_end,
+          detail: f.detail,
+          confidence: f.confidence,
+          counterpart: { file: bundle.seed.file, symbol: bundle.seed.symbol },
+        };
+        // Exactly one per file: keep the highest-confidence finding.
+        const prev = numericByFile.get(f.file);
+        if (!prev || f.confidence > prev.finding.confidence) {
+          numericByFile.set(f.file, { file: f.file, symbol: anchor, finding });
+        }
+      }
+    } catch (err) {
+      log.warn({ err: err instanceof Error ? err.message : String(err) }, 'invariants: numeric judge failed — skipping bundle');
+    } finally {
+      ctx.activeAborts.delete(abortController);
+    }
+  }
+  for (const entry of numericByFile.values()) judged.push(entry);
+
   // (f) DE-DUP vs doc-16: drop any judged finding whose (file,symbol) already
   // has a doc-conflict pending entry, so the invariants phase and the doc-16
   // doc-conflict pipeline never both flag the same anchor (self-contradiction
@@ -326,11 +480,15 @@ export async function runInvariantsPhase(
   for (const r of reviews) {
     const content = fileContent.get(r.file);
     if (content === null || content === undefined) continue; // unreadable — cannot key
-    if (fileFresh.get(r.file)) continue; // already fresh — judged this content before
     const rf = reviewByFile.get(r.file)!;
+    // A numeric finding can land cross-file on an otherwise-fresh file (the
+    // anchor is the dependency table, not the seed). Always write back a
+    // touched file's review so the finding reaches the report, regardless of
+    // its own per-file cache freshness.
     if (touchedFiles.has(r.file)) {
       writeReviewOutput(ctx.projectRoot, rf, ctx.runDir);
     }
+    if (fileFresh.get(r.file)) continue; // already fresh — judged this content before
     if (!ctx.noCache) {
       try {
         writeProjectReviewAtHash(
@@ -551,4 +709,191 @@ function renderSide(label: string, s: CodeSide): string {
   lines.push(s.body || '(source unavailable)');
   lines.push('  ```');
   return lines.join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// Numerical-target matcher (no LLM) + judge prompt
+// ---------------------------------------------------------------------------
+
+/** Strong target-claim vocabulary — narrow so generic prose does not seed. */
+const TARGET_KEYWORD_RE = /\b(target|rtp|return to player|expected return|payout ratio)\b/i;
+/** Any numeric literal in the comment (percent, decimal, or integer). */
+const TARGET_NUMBER_RE = /\d/;
+/** A relative-import specifier (`from './x.js'`). */
+const RELATIVE_IMPORT_RE = /from\s+['"](\.[^'"]+)['"]/g;
+/** An object/array-literal const declaration — the shape of a constant table. */
+const CONST_TABLE_RE = /(?:export\s+)?const\s+\w+[^=\n]*=\s*[[{]/;
+
+/**
+ * Surface NUMERICAL-TARGET bundles (code-vs-doc numerical). A bundle is:
+ *   (a) a SEED = a reviewed function whose leading comment documents a numeric
+ *       target (e.g. computePayout: "target RTP of approximately 95%"); plus
+ *   (b) the DEPENDENCY FILES the seed's file imports from that contain a
+ *       numeric constant table (object/array const + >= MIN_TABLE_LITERALS
+ *       distinct literals — weights, paytable; a lone freespin/jackpot count
+ *       falls below the floor).
+ * The seed file (the consuming formula) is DELIBERATELY excluded from the
+ * bundle — the judge derives the target from the constants alone, which keeps
+ * the finding on the table file and avoids double-surfacing a separate formula
+ * bug that the correction axis already owns. Pure source + import parsing (no
+ * LLM, no RAG). Never throws.
+ */
+function buildNumericalCandidates(args: {
+  reviews: ReviewFile[];
+  reviewByFile: Map<string, ReviewFile>;
+  fileContent: Map<string, string | null>;
+  fileFresh: Map<string, boolean>;
+}): NumericalBundle[] {
+  const { reviews, reviewByFile, fileContent, fileFresh } = args;
+  const log = getLogger();
+  const out: NumericalBundle[] = [];
+  const seenDepSig = new Set<string>(); // dedupe bundles by their dependency-file set
+
+  for (const review of reviews) {
+    if (out.length >= MAX_NUMERIC_SEEDS) break;
+    const seedContent = fileContent.get(review.file) ?? null;
+    if (!seedContent) continue;
+
+    // Resolve this seed file's relative-import dependency files once.
+    const depFilesAll = resolveImportDeps(review.file, seedContent, reviewByFile);
+
+    for (const sym of review.symbols) {
+      if (out.length >= MAX_NUMERIC_SEEDS) break;
+      if (sym.kind !== 'function' && sym.kind !== 'method') continue;
+      const comment = extractLeadingComment(seedContent, sym.line_start);
+      if (!comment) continue;
+      if (!TARGET_KEYWORD_RE.test(comment) || !TARGET_NUMBER_RE.test(comment)) continue;
+
+      // Keep only dependency files that actually hold a numeric constant table.
+      const depFiles = depFilesAll.filter((f) => {
+        const c = fileContent.get(f) ?? null;
+        return c !== null && isNumericTable(c);
+      });
+      if (depFiles.length === 0) continue;
+
+      // Cache gate: re-judge only when the seed file OR a contributing table
+      // is stale this run. (Cross-file: a constant change must re-derive.)
+      const seedStale = !fileFresh.get(review.file);
+      const depStale = depFiles.some((f) => !fileFresh.get(f));
+      if (!seedStale && !depStale) continue;
+
+      const depSig = [...depFiles].sort().join('|');
+      if (seenDepSig.has(depSig)) continue; // same tables already bundled
+      seenDepSig.add(depSig);
+
+      const depSources = new Map<string, string>();
+      for (const f of depFiles) {
+        depSources.set(f, capLines(fileContent.get(f) ?? '', MAX_DEP_FILE_LINES));
+      }
+      out.push({
+        seed: { file: review.file, symbol: sym.name, documentation: comment, depFiles },
+        depSources,
+      });
+    }
+  }
+
+  log.info({ bundles: out.length }, 'invariants: numerical-target matcher surfaced bundles');
+  return out;
+}
+
+/**
+ * Extract the contiguous leading comment block immediately above a symbol
+ * (1-based `lineStart`). Walks upward collecting comment-like lines, stopping
+ * at the first code/blank line. Returns '' when there is no leading comment.
+ */
+function extractLeadingComment(content: string, lineStart: number): string {
+  const lines = content.split('\n');
+  const collected: string[] = [];
+  for (let i = Math.min(lineStart - 2, lines.length - 1); i >= 0; i--) {
+    const t = (lines[i] ?? '').trim();
+    if (t === '') break; // blank separates comment from symbol — stop
+    if (/^(\/\*\*?|\*\/|\*|\/\/)/.test(t)) {
+      collected.unshift(t.replace(/^\/\*\*?|\*\/$|^\*\s?|^\/\/\s?/g, '').trim());
+      continue;
+    }
+    break; // code line — comment block ended
+  }
+  return collected.join(' ').trim();
+}
+
+/**
+ * Resolve a seed file's relative-import specifiers to project-relative source
+ * files that are present in `reviewByFile`. `./reels.js` from `src/engine.ts`
+ * resolves to `src/reels.ts`. Extension-agnostic (.js/.ts/.tsx/index).
+ */
+function resolveImportDeps(
+  seedFile: string,
+  content: string,
+  reviewByFile: Map<string, ReviewFile>,
+): string[] {
+  const base = posixPath.dirname(seedFile);
+  const found = new Set<string>();
+  let m: RegExpExecArray | null;
+  RELATIVE_IMPORT_RE.lastIndex = 0;
+  while ((m = RELATIVE_IMPORT_RE.exec(content)) !== null) {
+    const spec = m[1]!.replace(/\.(js|jsx|ts|tsx|mjs|cjs)$/, '');
+    const stem = posixPath.normalize(posixPath.join(base, spec));
+    for (const cand of [`${stem}.ts`, `${stem}.tsx`, `${stem}/index.ts`, stem]) {
+      if (reviewByFile.has(cand)) { found.add(cand); break; }
+    }
+  }
+  return [...found];
+}
+
+/** A file holds a numeric constant table: object/array const + enough distinct literals. */
+function isNumericTable(content: string): boolean {
+  if (!CONST_TABLE_RE.test(content)) return false;
+  return extractLiterals(content).size >= MIN_TABLE_LITERALS;
+}
+
+/** Cap a source blob to at most `max` lines (prompt-size defence). */
+function capLines(content: string, max: number): string {
+  const lines = content.split('\n');
+  if (lines.length <= max) return content;
+  return lines.slice(0, max).join('\n') + `\n// … (${lines.length - max} more lines elided)`;
+}
+
+/**
+ * Resolve the judge-named offending constant to a REVIEWED symbol in the
+ * dependency file onto which the numeric finding can be folded as exactly one
+ * correction NEEDS_FIX. Returns undefined (finding dropped) when:
+ *   - the file already carries a correction defect on ANY symbol — the file is
+ *     already flagged on the correction axis, so a 2nd NEEDS_FIX would be a
+ *     false positive under the bench's per-file bipartite matching (this is the
+ *     dedupe that keeps INV-WEIGHTS in a single lane when the correction axis
+ *     already caught it); or
+ *   - no clean (OK/'-') reviewed symbol exists to anchor to.
+ * Otherwise prefers the dotted root of the judge's symbol (e.g.
+ * `DEFAULT_WEIGHTS.DIAMOND` -> `DEFAULT_WEIGHTS`), else the first clean symbol.
+ */
+function resolveNumericAnchor(rf: ReviewFile | undefined, judgeSymbol: string): string | undefined {
+  if (!rf) return undefined;
+  const isDefect = (s: SymbolReview): boolean => s.correction === 'NEEDS_FIX' || s.correction === 'ERROR';
+  const clean = (s: SymbolReview): boolean => s.correction === 'OK' || s.correction === '-';
+  if (rf.symbols.some(isDefect)) return undefined; // file already flagged ⇒ no double-surface
+  const root = judgeSymbol.split('.')[0]!.trim();
+  const named = rf.symbols.find((s) => s.name === root);
+  if (named && clean(named)) return named.name;
+  const fallback = rf.symbols.find(clean);
+  return fallback?.name;
+}
+
+/** Render a numeric bundle (documented target + contributing tables) for the judge. */
+function buildNumericalUserMessage(bundle: NumericalBundle): string {
+  const parts: string[] = [];
+  parts.push(
+    `Documented numeric target (from \`${bundle.seed.symbol}\` in \`${bundle.seed.file}\`):\n` +
+    bundle.seed.documentation,
+  );
+  parts.push(
+    '\nContributing numeric constant tables (the consuming formula is ' +
+    'intentionally withheld — derive the target from these constants alone):',
+  );
+  for (const [file, source] of bundle.depSources) {
+    parts.push(`\n### ${file}`);
+    parts.push('```ts');
+    parts.push(source || '(source unavailable)');
+    parts.push('```');
+  }
+  return parts.join('\n');
 }

@@ -99,6 +99,23 @@ describe('applyInvariantFindingsToReviews (report fold)', () => {
     expect(applyInvariantFindingsToReviews(reviews)).toBe(0);
     expect(reviews[0]!.symbols[0]!.correction).toBe('OK');
   });
+
+  it('uses the numerical-target preamble when folding a numerical_target finding', () => {
+    const numeric = invariantFinding({
+      invariant: 'numerical_target',
+      detail: 'DIAMOND weight 30/120 implies RTP ~239%, not the documented 95%',
+      counterpart: { file: 'src/engine.ts', symbol: 'computePayout' },
+    });
+    const reviews = [review('src/reels.ts', [sym({ name: 'DEFAULT_WEIGHTS', kind: 'constant', invariant_findings: [numeric] })])];
+    const folded = applyInvariantFindingsToReviews(reviews);
+    expect(folded).toBe(1);
+    const s = reviews[0]!.symbols[0]!;
+    expect(s.correction).toBe('NEEDS_FIX');
+    expect(s.detail).toContain('Numerical-target inconsistency');
+    expect(s.detail).not.toContain('Inter-representation');
+    expect(s.detail).toContain('computePayout');
+    expect(s.detail).toContain('239%');
+  });
 });
 
 describe('applyTier2 (invariant findings are NOT escalated to tier 3)', () => {
@@ -190,6 +207,11 @@ function makeCtx(overrides: Partial<RunContext> = {}): RunContext {
     activeAborts: new Set<AbortController>(),
     pipelineState: undefined,
     router: { calls: [] } as unknown as RunContext['router'],
+    // Cost rollup buckets recordLlmCost reconciles into (see cost.ts).
+    totalCostUsd: 0,
+    providerStats: { anthropic: { calls: 0, costUsd: 0 } },
+    phaseStats: {},
+    axisStats: {},
     config: {
       models: { quality: 'anthropic/claude-sonnet-4-6' },
       rag: { code_weight: 0.6 },
@@ -401,5 +423,175 @@ describe('runInvariantsPhase (no-op safety + de-dup + cache)', () => {
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Numerical-target invariant (increment 2): a documented numeric target +
+// the contributing constant tables, judged by a rule-12 derivation. The judge
+// seam is mocked (no real LLM); the RAG code-vs-code matcher is starved (empty
+// store) so only the numerical bundle drives the single judge call.
+// ---------------------------------------------------------------------------
+
+const ENGINE_SRC = [
+  "import { getReelWeights } from './reels.js';",
+  '',
+  '/**',
+  ' * Applies the house edge to maintain a target RTP of approximately 95%.',
+  ' */',
+  'function computePayout(bet: number): number {',
+  '  return bet;',
+  '}',
+].join('\n');
+
+const REELS_SRC = [
+  'export const DEFAULT_WEIGHTS = { CHERRY: 25, LEMON: 25, BELL: 15, BAR: 10, SEVEN: 5, DIAMOND: 30, WILD: 5, SCATTER: 5 };',
+  '',
+  'export function weightsToArray(): number[] {',
+  '  return Object.values(DEFAULT_WEIGHTS);',
+  '}',
+].join('\n');
+
+const NUMERIC_FINDING = {
+  file: 'src/reels.ts',
+  symbol: 'DEFAULT_WEIGHTS.DIAMOND',
+  line_start: 1,
+  line_end: 1,
+  confidence: 92,
+  detail: 'DIAMOND weight 30/120 = 0.25 implies RTP ~239%, an order of magnitude above the documented 95%; weight should be ~3',
+};
+
+describe('runInvariantsPhase (numerical_target invariant)', () => {
+  let tmp: string;
+
+  beforeEach(() => {
+    vi.spyOn(runCache, 'resolveAxisCache').mockReturnValue({
+      cached: null, reusableAxes: [], staleAxes: ['invariants'],
+    } as unknown as ReturnType<typeof runCache.resolveAxisCache>);
+    vi.spyOn(runCache, 'writeProjectReviewAtHash').mockReturnValue(undefined as unknown as ReturnType<typeof runCache.writeProjectReviewAtHash>);
+    vi.spyOn(documentation, 'loadPendingConflictsAsDocConflicts').mockReturnValue([]);
+    tmp = mkdtempSync(join(tmpdir(), 'invariants-num-'));
+    mkdirSync(join(tmp, 'src'), { recursive: true });
+    writeFileSync(join(tmp, 'src/engine.ts'), ENGINE_SRC);
+    writeFileSync(join(tmp, 'src/reels.ts'), REELS_SRC);
+    vi.spyOn(worktree, 'getEffectiveSourceRoot').mockReturnValue(tmp);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+    rmSync(tmp, { recursive: true, force: true });
+  });
+
+  /** Empty store ⇒ the code-vs-code matcher surfaces nothing; only numeric drives the judge. */
+  const emptyStore = () => fakeVectorStore({ cardsByFile: {}, neighbours: [] });
+
+  function reelsReviews(reelsSymbols: SymbolReview[]): ReviewFile[] {
+    return [
+      review('src/engine.ts', [sym({ name: 'computePayout', kind: 'function', line_start: 6, line_end: 8 })]),
+      review('src/reels.ts', reelsSymbols),
+    ];
+  }
+
+  it('judges a documented-target bundle and anchors the finding to the named constant', async () => {
+    const reviews = reelsReviews([
+      sym({ name: 'DEFAULT_WEIGHTS', kind: 'constant', line_start: 1, line_end: 1, correction: 'OK' }),
+      sym({ name: 'weightsToArray', kind: 'function', line_start: 3, line_end: 5, correction: 'OK' }),
+    ]);
+    vi.spyOn(reporting, 'loadReviews').mockReturnValue(reviews);
+    const judge = mockJudge([NUMERIC_FINDING]);
+    const writeSpy = vi.spyOn(reporting, 'writeReviewOutput').mockReturnValue({ jsonPath: '', mdPath: '' });
+
+    await runInvariantsPhase(makeCtx({ projectRoot: tmp, sourceRoot: tmp }), emptyHandoff, {
+      vectorStore: emptyStore(), ragEnabled: true,
+    });
+
+    // Exactly one judge call (the single numeric bundle).
+    expect(judge.calls).toBe(1);
+    const reels = reviews[1]!;
+    const anchored = reels.symbols.find((s) => s.name === 'DEFAULT_WEIGHTS')!;
+    expect(anchored.invariant_findings).toHaveLength(1);
+    const f = anchored.invariant_findings![0]!;
+    expect(f.invariant).toBe('numerical_target');
+    expect(f.confidence).toBe(92);
+    expect(f.counterpart).toEqual({ file: 'src/engine.ts', symbol: 'computePayout' });
+    // engine.ts (the seed/consuming side) carries NO invariant finding.
+    expect(reviews[0]!.symbols[0]!.invariant_findings).toBeUndefined();
+    expect(writeSpy).toHaveBeenCalled();
+  });
+
+  it('folds the numerical finding into a single correction NEEDS_FIX on the table file', async () => {
+    const reviews = reelsReviews([
+      sym({ name: 'DEFAULT_WEIGHTS', kind: 'constant', line_start: 1, line_end: 1, correction: 'OK' }),
+    ]);
+    vi.spyOn(reporting, 'loadReviews').mockReturnValue(reviews);
+    mockJudge([NUMERIC_FINDING]);
+    vi.spyOn(reporting, 'writeReviewOutput').mockReturnValue({ jsonPath: '', mdPath: '' });
+
+    await runInvariantsPhase(makeCtx({ projectRoot: tmp, sourceRoot: tmp }), emptyHandoff, {
+      vectorStore: emptyStore(), ragEnabled: true,
+    });
+
+    const folded = applyInvariantFindingsToReviews(reviews);
+    expect(folded).toBe(1);
+    const reels = reviews[1]!;
+    const flagged = reels.symbols.filter((s) => s.correction === 'NEEDS_FIX');
+    expect(flagged).toHaveLength(1); // exactly one ⇒ no per-file bench FP
+    expect(flagged[0]!.name).toBe('DEFAULT_WEIGHTS');
+    expect(flagged[0]!.detail).toContain('Numerical-target inconsistency');
+  });
+
+  it('default-to-no-finding: an empty judge response writes nothing', async () => {
+    const reviews = reelsReviews([
+      sym({ name: 'DEFAULT_WEIGHTS', kind: 'constant', line_start: 1, line_end: 1, correction: 'OK' }),
+    ]);
+    vi.spyOn(reporting, 'loadReviews').mockReturnValue(reviews);
+    const judge = mockJudge([]);
+    const writeSpy = vi.spyOn(reporting, 'writeReviewOutput').mockReturnValue({ jsonPath: '', mdPath: '' });
+
+    await runInvariantsPhase(makeCtx({ projectRoot: tmp, sourceRoot: tmp }), emptyHandoff, {
+      vectorStore: emptyStore(), ragEnabled: true,
+    });
+
+    expect(judge.calls).toBe(1); // bundle judged
+    expect(reviews[1]!.symbols[0]!.invariant_findings).toBeUndefined();
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('drops the numeric finding when the table file already carries a correction defect (no double-surface)', async () => {
+    // The correction axis already caught DIAMOND ⇒ reels.ts already scores; a
+    // 2nd NEEDS_FIX would be a per-file false positive, so the fold is skipped.
+    const reviews = reelsReviews([
+      sym({ name: 'DEFAULT_WEIGHTS', kind: 'constant', line_start: 1, line_end: 1, correction: 'NEEDS_FIX', detail: 'DIAMOND weight is implausibly high' }),
+    ]);
+    vi.spyOn(reporting, 'loadReviews').mockReturnValue(reviews);
+    mockJudge([NUMERIC_FINDING]);
+    const writeSpy = vi.spyOn(reporting, 'writeReviewOutput').mockReturnValue({ jsonPath: '', mdPath: '' });
+
+    await runInvariantsPhase(makeCtx({ projectRoot: tmp, sourceRoot: tmp }), emptyHandoff, {
+      vectorStore: emptyStore(), ragEnabled: true,
+    });
+
+    const reels = reviews[1]!;
+    expect(reels.symbols[0]!.invariant_findings).toBeUndefined();
+    expect(writeSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to a clean reviewed symbol when the named constant is not a reviewed symbol', async () => {
+    // DEFAULT_WEIGHTS is not in the review; the finding anchors to the first
+    // clean reviewed symbol so the file still surfaces exactly one finding.
+    const reviews = reelsReviews([
+      sym({ name: 'weightsToArray', kind: 'function', line_start: 3, line_end: 5, correction: 'OK' }),
+    ]);
+    vi.spyOn(reporting, 'loadReviews').mockReturnValue(reviews);
+    mockJudge([NUMERIC_FINDING]);
+    vi.spyOn(reporting, 'writeReviewOutput').mockReturnValue({ jsonPath: '', mdPath: '' });
+
+    await runInvariantsPhase(makeCtx({ projectRoot: tmp, sourceRoot: tmp }), emptyHandoff, {
+      vectorStore: emptyStore(), ragEnabled: true,
+    });
+
+    const reels = reviews[1]!;
+    const anchored = reels.symbols.find((s) => s.name === 'weightsToArray')!;
+    expect(anchored.invariant_findings).toHaveLength(1);
+    expect(anchored.invariant_findings![0]!.invariant).toBe('numerical_target');
   });
 });

@@ -217,10 +217,17 @@ export function applyInvariantFindingsToReviews(reviews: ReviewFile[]): number {
         ? ` Counterpart: \`${f.counterpart.symbol}\` in \`${f.counterpart.file}\`.`
         : '';
       sym.correction = 'NEEDS_FIX';
-      sym.detail =
-        `Inter-representation inconsistency: this symbol and a counterpart compute ` +
-        `the same named quantity but disagree in value or direction.${counterpart} ` +
-        `${f.detail}`;
+      if (f.invariant === 'numerical_target') {
+        sym.detail =
+          `Numerical-target inconsistency: this constant table cannot produce the ` +
+          `documented numeric target derived elsewhere in the codebase.${counterpart} ` +
+          `${f.detail}`;
+      } else {
+        sym.detail =
+          `Inter-representation inconsistency: this symbol and a counterpart compute ` +
+          `the same named quantity but disagree in value or direction.${counterpart} ` +
+          `${f.detail}`;
+      }
       folded++;
     }
   }

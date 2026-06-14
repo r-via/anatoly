@@ -38,14 +38,16 @@ export const SymbolFindingSchema = z.object({
  * `invariants` pipeline phase (NOT an axis — see SymbolFindingSchema.axis,
  * whose enum is closed). The phase runs a cheap structural matcher to find
  * suspect candidate pairs, then an adversarial LLM judge confirms (default:
- * no finding). Increment 1 carries exactly one invariant kind,
- * `inter_representation` (two code symbols computing the same named quantity
- * that disagree in value or direction); the enum is single-valued now but
- * left extensible. `counterpart` is the other side of the inter-representation
- * pair when known.
+ * no finding). Increment 1 carried one invariant kind, `inter_representation`
+ * (two code symbols computing the same named quantity that disagree in value
+ * or direction). Increment 2 adds `numerical_target` (a code numeric constant
+ * table inconsistent with a documented numeric target — e.g. a weight table
+ * that cannot produce the documented RTP). `counterpart` is the other side of
+ * the relationship when known: the paired symbol for `inter_representation`,
+ * the symbol whose comment documents the target for `numerical_target`.
  */
 export const InvariantFindingSchema = z.object({
-  invariant: z.enum(['inter_representation']),
+  invariant: z.enum(['inter_representation', 'numerical_target']),
   line_start: z.int().min(1),
   line_end: z.int().min(1),
   detail: z.string().min(10),
