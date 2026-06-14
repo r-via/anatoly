@@ -181,6 +181,15 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
       stats.escalated++;
     }
 
+    // NOTE: invariant findings (the invariants pipeline phase) are deliberately
+    // NOT escalated to tier 3 here. Tier 3 only reclassifies the six real
+    // DELIBERATION_AXES and prunes `sym.findings`; it has no path to read or
+    // clear `sym.invariant_findings`, so escalating one would burn a tier-3
+    // call without any ability to overturn it — a false safety layer. The
+    // invariants phase's own adversarial judge (same-quantity AND disagreement
+    // required, default-to-no-finding, confidence floor) is the precision gate
+    // for increment 1; a real deliberation-overturn path is a future increment.
+
     return s;
   });
 

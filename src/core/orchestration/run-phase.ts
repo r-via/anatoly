@@ -13,7 +13,7 @@ import { AnatolyError } from '../../utils/errors.js';
 // ---------------------------------------------------------------------------
 
 /**
- * The 12 canonical pipeline phases. `doc-conflict-detection` was split into
+ * The 13 canonical pipeline phases. `doc-conflict-detection` was split into
  * two named phases (doc-conflict-bootstrap, doc-conflict-update); the
  * post-doc-update incremental RAG re-index is the named phase
  * `rag-index-update` (was previously an unwrapped, invisible call).
@@ -29,6 +29,7 @@ export const CANONICAL_PHASES = Object.freeze([
   'rag-index-update',
   'doc-conflict-update',
   'review',
+  'invariants',
   'refinement',
   'report',
 ] as const);

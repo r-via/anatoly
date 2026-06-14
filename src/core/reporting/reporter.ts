@@ -35,6 +35,7 @@ export {
   aggregateStaleReferences, renderStaleReferenceSection,
   renderDocConflictSection,
   renderDocModeLine, applyPendingConflictsToReviews,
+  applyInvariantFindingsToReviews,
 } from './doc-divergences.js';
 export type { DocModeInfo } from './doc-divergences.js';
 
@@ -54,7 +55,7 @@ import { loadReviews, aggregateReviews, buildShards, restrictReviewsToEvaluatedA
 import type { ReportData, ShardInfo, TriageStats, RunStats } from './review-data.js';
 import { buildAxisReports, REPORT_AXIS_IDS } from './axis-registry.js';
 import type { AxisReport, ReportAxisId } from './axis-registry.js';
-import { applyPendingConflictsToReviews, aggregateDivergences, renderDivergenceSection, renderStaleReferenceSection, renderDocConflictSection } from './doc-divergences.js';
+import { applyPendingConflictsToReviews, applyInvariantFindingsToReviews, aggregateDivergences, renderDivergenceSection, renderStaleReferenceSection, renderDocConflictSection } from './doc-divergences.js';
 import type { DocModeInfo } from './doc-divergences.js';
 import { renderIndex, renderPublicIndex } from './render-report.js';
 import { renderAxisIndex, renderAxisShard } from './render-axis.js';
@@ -107,6 +108,14 @@ export function generateReport(
   // (e.g. `--axes utility`), manufacturing findings from stale pending conflicts.
   if (evaluatedAxes.has('correction')) {
     applyPendingConflictsToReviews(reviews, projectRoot, runDir);
+    // Invariants phase: fold confirmed cross-representation inconsistencies
+    // (carried on the reviews by the pre-deliberation invariants phase) into
+    // the correction axis as explained NEEDS_FIX, same scorable home as every
+    // finding. Dedupe leaves a symbol the correction axis already flagged
+    // untouched. Gated on the correction axis having run for the same reason
+    // as the pending-conflict fold (no correction findings in a run that did
+    // not evaluate correction).
+    applyInvariantFindingsToReviews(reviews);
   }
   // Drop cached verdicts (and crash sentinels) for axes not evaluated this run
   // before any aggregation, so counts, file verdicts, axis shard dirs, and the

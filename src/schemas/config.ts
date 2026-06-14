@@ -126,6 +126,19 @@ export const AgentsConfigSchema = z.object({
   max_turns: z.int().min(1).max(200).default(30),
 });
 
+// --- Invariants phase ---
+
+/**
+ * Gate for the `invariants` pipeline phase (a pre-deliberation phase, NOT an
+ * axis). Defaults to disabled: the phase is opt-in via this flag or the
+ * `--invariants` CLI flag while it matures. When disabled the phase is a
+ * no-op. High-precision by design — every new finding source defaults hard
+ * to "no finding" when uncertain.
+ */
+export const InvariantsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+});
+
 // --- v1.0 Runtime ---
 
 export const RuntimeConfigSchema = z.object({
@@ -303,6 +316,7 @@ export const ConfigSchema = z.object({
     deliberation: DEFAULT_MODELS.deliberation,
   }),
   agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
+  invariants: InvariantsConfigSchema.default({ enabled: false }),
   commands: CommandsConfigSchema.optional(),
   runtime: RuntimeConfigSchema.default({
     timeout_per_call: 600,
@@ -346,6 +360,7 @@ export type AnthropicProviderConfig = z.infer<typeof AnthropicProviderConfigSche
 export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
+export type InvariantsConfig = z.infer<typeof InvariantsConfigSchema>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 export type TelegramNotificationConfig = z.infer<typeof TelegramNotificationSchema>;
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;

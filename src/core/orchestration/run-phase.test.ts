@@ -47,7 +47,7 @@ function createMockCtx(overrides?: Partial<RunPhaseContext>): RunPhaseContext {
 // ---------------------------------------------------------------------------
 
 describe('CANONICAL_PHASES', () => {
-  it('should list exactly 12 phases in the correct order', () => {
+  it('should list exactly 13 phases in the correct order', () => {
     expect(CANONICAL_PHASES).toEqual([
       'scan',
       'estimate',
@@ -59,10 +59,11 @@ describe('CANONICAL_PHASES', () => {
       'rag-index-update',
       'doc-conflict-update',
       'review',
+      'invariants',
       'refinement',
       'report',
     ]);
-    expect(CANONICAL_PHASES).toHaveLength(12);
+    expect(CANONICAL_PHASES).toHaveLength(13);
   });
 
   it('should be readonly (frozen)', () => {

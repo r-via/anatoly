@@ -50,6 +50,7 @@ import { runRagPhase } from './phases/rag.js';
 import { runDocBootstrap, runDocUpdate, reindexDocsAfterUpdate } from './phases/doc.js';
 import { runRefinementStage } from './phases/refinement.js';
 import { runReviewPhase } from './phases/review.js';
+import { runInvariantsPhase } from './phases/invariants.js';
 import { loadDocConflicts } from '../documentation/index.js';
 import type { ArbitratedFragment } from '../evaluation/index.js';
 import type { RunContext } from '../../commands/run.js';
@@ -160,6 +161,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         }
         pipelineState.addTask('doc-conflict-update', 'Detecting doc conflicts');
         pipelineState.addTask('review', 'Reviewing files');
+        if (ctx.invariants) {
+          pipelineState.addTask('invariants', 'Checking invariants');
+        }
         if (ctx.deliberation) {
           pipelineState.addTask('refinement', 'Deliberation');
         }
@@ -345,6 +349,21 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         await runPhase(ctx, 'review', async () => {
           await runReviewPhase(ctx, handoff, ragContext);
         });
+        if (ctx.interrupted) {
+          emitInterruptSummary(ctx, handoff);
+          return;
+        }
+
+        // --- Phase: invariants (pre-deliberation, opt-in) ---
+        // Runs the structural matcher + adversarial judge over the reviews the
+        // axes produced, writing confirmed inter-representation findings onto
+        // SymbolReview.invariant_findings so deliberation (tier 2) and the
+        // report fold pick them up. No-op when disabled / RAG inactive.
+        if (ctx.invariants && !ctx.interrupted) {
+          await runPhase(ctx, 'invariants', async () => {
+            await runInvariantsPhase(ctx, handoff, ragContext);
+          });
+        }
         if (ctx.interrupted) {
           emitInterruptSummary(ctx, handoff);
           return;

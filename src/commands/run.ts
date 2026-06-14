@@ -117,6 +117,8 @@ export interface RunContext {
   startTime: number;
   /** Whether multi-axis deliberation is enabled */
   deliberation: boolean;
+  /** Whether the pre-deliberation invariants phase is enabled (default false) */
+  invariants: boolean;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
   /** Total LLM cost accumulated across all review phases */
@@ -196,6 +198,7 @@ export function registerRunCommand(program: Command): void {
     .option('--no-triage', 'disable triage, review all files with full agent')
     .option('--deliberation', 'enable Opus deliberation pass after axis merge')
     .option('--no-deliberation', 'disable deliberation pass')
+    .option('--invariants', 'enable the pre-deliberation invariants phase (cross-representation consistency)')
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--flush-memory', 'clear deliberation memory before running (fresh start)')
@@ -211,7 +214,7 @@ export function registerRunCommand(program: Command): void {
       runId?: string; axes?: string; flushMemory?: boolean;
       cache?: boolean; cacheRefresh?: boolean; retryTimeout?: boolean; resume?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
-      triage?: boolean; deliberation?: boolean;
+      triage?: boolean; deliberation?: boolean; invariants?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
       background?: boolean; notify?: boolean; sourceRoot?: string;
       quickWin?: boolean; defaultsSettings?: boolean;
@@ -677,6 +680,11 @@ export function registerRunCommand(program: Command): void {
         deliberation: cmdOpts.deliberation !== undefined
           ? cmdOpts.deliberation
           : config.agents.enabled,
+        // --invariants force-enables; otherwise honor config (default false).
+        // No --no-invariants flag: the phase is opt-in while it matures.
+        invariants: cmdOpts.invariants === true
+          ? true
+          : (config.invariants?.enabled ?? false),
         interrupted: false,
         activeAborts: new Set(),
         reviewCounts: { skipped: 0, cached: 0, evaluated: 0 },

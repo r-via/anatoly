@@ -186,3 +186,43 @@ export function applyPendingConflictsToReviews(
   }
   return folded;
 }
+
+/**
+ * Fold each confirmed invariant finding (from the `invariants` pipeline
+ * phase) into the correction axis of its symbol as an explained NEEDS_FIX,
+ * so it becomes a finding in `axes/correction/shard.N.md` (where every
+ * finding lives and the scorer reads), not only carried on the review.
+ * Mirrors applyPendingConflictsToReviews: safety-net + dedupe — only flip a
+ * symbol whose `correction` is not already a defect (`OK`/`-`), so an
+ * inconsistency the correction axis already caught is NOT double-counted. The
+ * invariant findings already live on the reviews (written by the phase before
+ * deliberation), so no external store or fresh-this-run gate is needed.
+ * Mutates `reviews` in place; returns the number folded.
+ */
+export function applyInvariantFindingsToReviews(reviews: ReviewFile[]): number {
+  let folded = 0;
+  for (const rf of reviews) {
+    for (const sym of rf.symbols) {
+      const findings = sym.invariant_findings;
+      if (!findings || findings.length === 0) continue;
+      // dedupe / safety-net: correction already flagged ⇒ leave it (the
+      // existing finding scores; a second on the same anchor is a false
+      // positive under the bench's bipartite matching).
+      if (sym.correction !== 'OK' && sym.correction !== '-') continue;
+      // Fold the first finding (one symbol carries at most one
+      // inter-representation pair in increment 1); its detail + counterpart
+      // explain the inconsistency.
+      const f = findings[0]!;
+      const counterpart = f.counterpart
+        ? ` Counterpart: \`${f.counterpart.symbol}\` in \`${f.counterpart.file}\`.`
+        : '';
+      sym.correction = 'NEEDS_FIX';
+      sym.detail =
+        `Inter-representation inconsistency: this symbol and a counterpart compute ` +
+        `the same named quantity but disagree in value or direction.${counterpart} ` +
+        `${f.detail}`;
+      folded++;
+    }
+  }
+  return folded;
+}
