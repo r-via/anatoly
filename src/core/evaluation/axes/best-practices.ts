@@ -3,7 +3,9 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { z } from 'zod';
+import picomatch from 'picomatch';
 import type { AxisContext, AxisResult, AxisEvaluator } from '../contract.js';
+import type { Config } from '../../../schemas/config.js';
 import { runSingleTurnQuery, resolveAxisModel, getCodeFenceTag, getLanguageLines } from '../evaluator.js';
 import { resolveSystemPrompt } from '../../platform/index.js';
 import { formatReclassificationsForAxis } from '../../platform/index.js';
@@ -11,6 +13,7 @@ import { DocDivergenceSchema } from '../../../schemas/review.js';
 import { renderInternalDocsContext } from './internal-docs-context.js';
 import { renderReferenceDocsContext } from './reference-docs-context.js';
 import { renderConsumerContext } from './consumer-context.js';
+import { renderImportUsageContext } from './import-usage-context.js';
 
 // ---------------------------------------------------------------------------
 // Zod schema for LLM response (best_practices axis — file-level, not per-symbol)
@@ -86,6 +89,19 @@ export function detectFileContext(filePath: string, fileContent: string): FileCo
   return 'general';
 }
 
+/**
+ * Whether `filePath` is vendored / third-party code (matched against the
+ * configured `scan.vendored` globs, e.g. `**\/components/ui/**` for shadcn).
+ * Vendored files are still audited, but best-practices suppresses stylistic
+ * suggestions on them (diverging from upstream complicates resync). Empty /
+ * unset config → never vendored.
+ */
+export function isVendoredFile(filePath: string, config: Config): boolean {
+  const globs = config.scan?.vendored ?? [];
+  if (globs.length === 0) return false;
+  return picomatch(globs)(filePath);
+}
+
 // ---------------------------------------------------------------------------
 // Prompt builders
 // ---------------------------------------------------------------------------
@@ -104,6 +120,13 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push(`## File: \`${ctx.task.file}\``);
   parts.push(...getLanguageLines(ctx.task));
   parts.push(`## Context: ${fileCtx}`);
+  if (isVendoredFile(ctx.task.file, ctx.config)) {
+    parts.push('');
+    parts.push('## Vendored / third-party file (kept close to upstream)');
+    parts.push(
+      'This file matches a configured vendored path. Flag ONLY real defects: bugs, security issues, unhandled errors, and genuinely dead code (e.g. unused imports). Do NOT report stylistic preferences — `readonly`, `satisfies`/`as const`, JSDoc, interface-vs-type, import ordering, naming, or micro-optimisations — because diverging from upstream complicates resync. For those stylistic rules, return PASS unless there is a real, observed defect.',
+    );
+  }
   parts.push('');
   parts.push(`\`\`\`${getCodeFenceTag(ctx.task)}`);
   parts.push(ctx.fileContent);
@@ -117,6 +140,9 @@ export function buildBestPracticesUserMessage(ctx: AxisContext): string {
   parts.push(`- Symbols: ${ctx.task.symbols.length}`);
   parts.push(`- Exported symbols: ${ctx.task.symbols.filter((s) => s.exported).length}`);
   parts.push('');
+
+  const importUsageSection = renderImportUsageContext(ctx);
+  if (importUsageSection) parts.push(importUsageSection);
 
   const referenceDocsSection = renderReferenceDocsContext(ctx.referenceDocs, ctx.arbitratedFragments);
   if (referenceDocsSection) {

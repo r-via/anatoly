@@ -31,6 +31,13 @@ export const ScanConfigSchema = z.object({
   // than hidden runtime magic — set to false to audit gitignored files
   // explicitly (e.g. a generated dir you want to lint).
   respect_gitignore: z.boolean().default(true),
+  // Glob patterns marking VENDORED / third-party code kept close to upstream
+  // (e.g. shadcn/ui components under `**/components/ui/**`, generated clients).
+  // These files are still audited, but the best-practices axis flags only real
+  // defects (bugs, security, unhandled errors, dead code) there — not stylistic
+  // preferences — since divergence from upstream complicates resync. Default
+  // empty (opt-in).
+  vendored: z.array(z.string()).default([]),
 });
 
 export const CoverageConfigSchema = z.object({
@@ -289,7 +296,7 @@ export const NotificationsConfigSchema = z.object({
 
 export const ConfigSchema = z.object({
   project: ProjectConfigSchema.default({ monorepo: false }),
-  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'], respect_gitignore: true }),
+  scan: ScanConfigSchema.default({ include: [], exclude: ['node_modules/**', 'dist/**'], respect_gitignore: true, vendored: [] }),
   coverage: CoverageConfigSchema.default({
     enabled: true,
     command: 'npx vitest run --coverage.reporter=json',
