@@ -58,8 +58,18 @@ vi.mock('./vector-store.js', () => {
   };
 });
 
-vi.mock('./indexer.js', () => ({
+vi.mock('./indexer.js', () => {
+  const FUNCTION_KINDS = new Set(['function', 'method', 'hook']);
+  const DECLARATION_KINDS = new Set(['constant', 'variable', 'type', 'enum']);
+  const isFunctionKind = (k: string) => FUNCTION_KINDS.has(k);
+  const isDeclarationKind = (k: string) => DECLARATION_KINDS.has(k);
+  const isIndexableKind = (k: string) => isFunctionKind(k) || isDeclarationKind(k);
+  return {
   buildFunctionCards: vi.fn().mockReturnValue([]),
+  buildDeclarationCards: vi.fn().mockReturnValue([]),
+  isFunctionKind: vi.fn(isFunctionKind),
+  isDeclarationKind: vi.fn(isDeclarationKind),
+  isIndexableKind: vi.fn(isIndexableKind),
   buildFunctionId: vi.fn((_file: string, start: number, end: number) => `mock-${start}-${end}`),
   needsReindex: vi.fn().mockReturnValue(true),
   embedCards: vi.fn().mockResolvedValue([]),
@@ -72,7 +82,8 @@ vi.mock('./indexer.js', () => ({
   loadNlpSummaryCache: vi.fn().mockReturnValue({ entries: {} }),
   saveNlpSummaryCache: vi.fn(),
   computeBodyHash: vi.fn().mockReturnValue('0000000000000000'),
-}));
+  };
+});
 
 vi.mock('./doc-indexer.js', () => ({
   indexDocSections: vi.fn().mockResolvedValue({ sections: 0, cached: false, costUsd: 0 }),
@@ -163,19 +174,21 @@ describe('indexProject', () => {
     expect(poolArgs().isInterrupted).toBe(isInterrupted);
   });
 
-  it('should filter tasks to only those with function symbols', async () => {
+  it('should filter tasks to only those with indexable symbols', async () => {
     const taskWithFunctions = makeTask('src/a.ts');
-    const taskWithoutFunctions: Task = {
+    // `class` is deliberately excluded from indexing (neither function nor
+    // declaration kind), so a class-only file has no indexable symbols.
+    const taskWithoutIndexable: Task = {
       version: 1,
       file: 'src/b.ts',
       hash: 'def456',
-      symbols: [{ name: 'MyType', kind: 'type', line_start: 1, line_end: 5, exported: true }],
+      symbols: [{ name: 'MyClass', kind: 'class', line_start: 1, line_end: 5, exported: true }],
       scanned_at: '2024-01-01T00:00:00.000Z',
     };
 
     await indexProject({
       projectRoot: '/tmp/test',
-      tasks: [taskWithFunctions, taskWithoutFunctions],
+      tasks: [taskWithFunctions, taskWithoutIndexable],
       indexModel: 'haiku',
       onLog: vi.fn(),
       isInterrupted: () => false,
@@ -184,6 +197,30 @@ describe('indexProject', () => {
     expect(workerPoolSpy).toHaveBeenCalledOnce();
     expect(poolArgs().items).toHaveLength(1);
     expect(poolArgs().items[0]).toBe(taskWithFunctions);
+  });
+
+  it('should index a data-only file whose only symbols are declarations', async () => {
+    // A const-only file (no functions) must still be indexed so it gets a
+    // per-file NLP vector for reference-doc routing (the declaration fix).
+    const dataOnlyTask: Task = {
+      version: 1,
+      file: 'src/timetable.ts',
+      hash: 'abc789',
+      symbols: [{ name: 'DWELL_TICKS', kind: 'constant', line_start: 1, line_end: 1, exported: true }],
+      scanned_at: '2024-01-01T00:00:00.000Z',
+    };
+
+    await indexProject({
+      projectRoot: '/tmp/test',
+      tasks: [dataOnlyTask],
+      indexModel: 'haiku',
+      onLog: vi.fn(),
+      isInterrupted: () => false,
+    });
+
+    expect(workerPoolSpy).toHaveBeenCalledOnce();
+    expect(poolArgs().items).toHaveLength(1);
+    expect(poolArgs().items[0]).toBe(dataOnlyTask);
   });
 
   it('should use runWorkerPool instead of sequential loop', async () => {

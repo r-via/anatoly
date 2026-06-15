@@ -33,6 +33,40 @@ export interface NlpSummaryCache {
   entries: Record<string, NlpSummaryCacheEntry>;
 }
 
+/** Symbol kinds indexed as LLM-summarized function cards. */
+export const FUNCTION_KINDS: ReadonlySet<SymbolInfo['kind']> = new Set([
+  'function',
+  'method',
+  'hook',
+]);
+
+/**
+ * Symbol kinds indexed as non-callable declaration cards (AST summary, no LLM).
+ * `class` is intentionally excluded: its methods are already indexed as function
+ * cards, and the class shell carries little routing signal on its own.
+ */
+export const DECLARATION_KINDS: ReadonlySet<SymbolInfo['kind']> = new Set([
+  'constant',
+  'variable',
+  'type',
+  'enum',
+]);
+
+/** True for symbol kinds indexed as function cards. */
+export function isFunctionKind(kind: SymbolInfo['kind']): boolean {
+  return FUNCTION_KINDS.has(kind);
+}
+
+/** True for symbol kinds indexed as declaration cards. */
+export function isDeclarationKind(kind: SymbolInfo['kind']): boolean {
+  return DECLARATION_KINDS.has(kind);
+}
+
+/** True for any symbol kind the RAG index represents as a card. */
+export function isIndexableKind(kind: SymbolInfo['kind']): boolean {
+  return isFunctionKind(kind) || isDeclarationKind(kind);
+}
+
 /**
  * Build a deterministic ID for a function based on file path and line range.
  */
@@ -191,6 +225,72 @@ export function buildFunctionCards(
       complexityScore,
       calledInternals,
       referencedImports,
+      kind: 'function',
+      lastIndexed: now,
+    });
+  }
+
+  return cards;
+}
+
+/** Human label for a declaration's symbol kind, used in its synthetic summary. */
+const DECLARATION_KIND_LABEL: Record<string, string> = {
+  constant: 'Constant',
+  variable: 'Variable',
+  type: 'Type definition',
+  enum: 'Enum',
+};
+
+/**
+ * Synthesize an LLM-free natural-language summary for a declaration from its AST
+ * signature. This is what gives the card a real (non-zero) NLP vector via
+ * {@link generateNlpEmbeddings} without an LLM round-trip, so data-only files
+ * (constants/types only, no functions) still contribute to the per-file average
+ * NLP vector used for reference-doc routing.
+ */
+export function buildDeclarationSummary(symbol: SymbolInfo, signature: string): string {
+  const label = DECLARATION_KIND_LABEL[symbol.kind] ?? 'Declaration';
+  return `${label} ${symbol.name}. ${signature}`.slice(0, 400);
+}
+
+/**
+ * Build declaration cards (const/variable/type/enum) from AST data only.
+ *
+ * Unlike function cards these carry a pre-set AST summary and `kind:
+ * 'declaration'`, so the NLP phase skips them for LLM summarization (see the
+ * guards in the orchestrator / {@link enrichCardsWithSummaries}) yet they still
+ * receive a real NLP embedding. complexityScore is a flat 1 and calledInternals
+ * is empty (a declaration calls nothing); referencedImports is still captured so
+ * the cross-file reference graph stays complete.
+ */
+export function buildDeclarationCards(
+  task: Task,
+  source: string,
+): FunctionCard[] {
+  const now = new Date().toISOString();
+  const declarationSymbols = task.symbols.filter((s) => isDeclarationKind(s.kind));
+
+  const cards: FunctionCard[] = [];
+
+  for (const symbol of declarationSymbols) {
+    const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
+    const signature = extractSignature(source, symbol);
+    const referencedImports = extractReferencedImports(
+      extractFunctionBody(source, symbol),
+      task.imports,
+    );
+
+    cards.push({
+      id,
+      filePath: task.file,
+      name: symbol.name,
+      signature,
+      summary: buildDeclarationSummary(symbol, signature),
+      keyConcepts: [symbol.name],
+      complexityScore: 1,
+      calledInternals: [],
+      referencedImports,
+      kind: 'declaration',
       lastIndexed: now,
     });
   }
@@ -215,7 +315,7 @@ export async function embedCards(cards: FunctionCard[], source: string, symbols:
   const texts: string[] = [];
   for (const card of cards) {
     const symbol = symbols.find(
-      (s) => s.name === card.name && (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+      (s) => s.name === card.name && isIndexableKind(s.kind),
     );
     if (!symbol) {
       texts.push(buildEmbedCode(card.name, card.signature, ''));
@@ -248,6 +348,12 @@ export function enrichCardsWithSummaries(
         keyConcepts: summary.keyConcepts,
         behavioralProfile: summary.behavioralProfile,
       });
+    } else if (card.kind === 'declaration') {
+      // Declarations carry an AST-synthesized summary and are never sent to the
+      // LLM, so an absent NLP summary is expected — keep the card as-is and do
+      // NOT flag it failed (a failed card is dropped from the index cache and
+      // retried every run).
+      enrichedCards.push(card);
     } else {
       enrichedCards.push(card);
       nlpFailedIds.add(card.id);

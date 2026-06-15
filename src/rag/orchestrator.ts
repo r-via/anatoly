@@ -8,7 +8,7 @@ import picomatch from 'picomatch';
 import type { Task } from '../schemas/task.js';
 import type { FunctionCard } from './types.js';
 import { VectorStore } from './vector-store.js';
-import { buildFunctionCards, buildFunctionId, needsReindex, embedCards, enrichCardsWithSummaries, generateNlpEmbeddings, generateDocEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
+import { buildFunctionCards, buildDeclarationCards, buildFunctionId, isFunctionKind, isIndexableKind, needsReindex, embedCards, enrichCardsWithSummaries, generateNlpEmbeddings, generateDocEmbeddings, loadRagCache, saveRagCache, loadNlpSummaryCache, saveNlpSummaryCache, extractFunctionBody, computeBodyHash } from './indexer.js';
 import type { NlpSummaryCache } from './indexer.js';
 import { embedCode, setEmbeddingLogger, configureModels } from './embeddings.js';
 import type { ResolvedModels } from './hardware-detect.js';
@@ -150,7 +150,7 @@ export interface IndexedFileResult {
  * @param cache - RAG index cache mapping card IDs to file hashes; cards already
  *   cached with the current hash are skipped.
  * @returns The source text, cards needing indexing, and a promise for their code
- *   embeddings, or `null` if no functions need indexing (no function symbols,
+ *   embeddings, or `null` if nothing needs indexing (no indexable symbols,
  *   file unreadable, or all cards already cached).
  */
 function readAndBuildCards(
@@ -158,11 +158,9 @@ function readAndBuildCards(
   task: Task,
   cache: { entries: Record<string, string> },
 ): { source: string; toIndex: FunctionCard[]; embeddings: Promise<number[][]> } | null {
-  const functionSymbols = task.symbols.filter(
-    (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
-  );
+  const indexableSymbols = task.symbols.filter((s) => isIndexableKind(s.kind));
 
-  if (functionSymbols.length === 0) return null;
+  if (indexableSymbols.length === 0) return null;
 
   const absPath = resolve(projectRoot, task.file);
   let source: string;
@@ -173,7 +171,9 @@ function readAndBuildCards(
     return null;
   }
 
-  const cards = buildFunctionCards(task, source);
+  // Function cards (LLM-summarized) plus declaration cards (AST summary, no LLM)
+  // so data-only files still get an NLP vector for reference-doc routing.
+  const cards = [...buildFunctionCards(task, source), ...buildDeclarationCards(task, source)];
   const toIndex = cards.filter((card) => needsReindex(cache, card, task.hash));
   if (toIndex.length === 0) return null;
 
@@ -275,6 +275,10 @@ async function summarizeFile(
 
   for (let i = 0; i < cards.length; i++) {
     const card = cards[i];
+    // Declaration cards carry an AST-synthesized summary — never call the LLM
+    // for them (and never enter them into mergedSummaries; enrichCardsWithSummaries
+    // keeps their existing summary and does not flag them failed).
+    if (card.kind === 'declaration') continue;
     const body = functionBodies[i];
     const bodyHash = computeBodyHash(body);
     const cached = nlpSummaryCache?.entries[card.id];
@@ -421,16 +425,16 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     }
   }
 
-  const tasksWithFunctions = tasks.filter((t) =>
-    t.symbols.some((s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook'),
+  const tasksWithSymbols = tasks.filter((t) =>
+    t.symbols.some((s) => isIndexableKind(s.kind)),
   );
 
-  // Garbage-collect orphaned cache entries whose function IDs no longer match
+  // Garbage-collect orphaned cache entries whose card IDs no longer match
   // any current task symbol (e.g. after parser changes shift line ranges).
   const validIds = new Set<string>();
-  for (const task of tasksWithFunctions) {
+  for (const task of tasksWithSymbols) {
     for (const s of task.symbols) {
-      if (s.kind === 'function' || s.kind === 'method' || s.kind === 'hook') {
+      if (isIndexableKind(s.kind)) {
         validIds.add(buildFunctionId(task.file, s.line_start, s.line_end));
       }
     }
@@ -446,7 +450,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
 
   const log = contextLogger();
   log.debug(
-    { totalFiles: tasks.length, filesWithFunctions: tasksWithFunctions.length },
+    { totalFiles: tasks.length, filesWithSymbols: tasksWithSymbols.length },
     'RAG index: filtering files',
   );
 
@@ -464,18 +468,18 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     saveNlpSummaryCache(projectRoot, nlpSummaryCache);
   }
 
-  // Filter out files where all function cards are already cached for the current hash
-  // AND have a valid NLP summary cache entry (cross-validation prevents stale cache
-  // from a crashed run leaving functions without NLP summaries)
-  const tasksToIndex = tasksWithFunctions.filter((task) => {
-    const fnSymbols = task.symbols.filter(
-      (s) => s.kind === 'function' || s.kind === 'method' || s.kind === 'hook',
-    );
-    return !fnSymbols.every((symbol) => {
+  // Filter out files where all cards are already cached for the current hash
+  // AND (for function cards) have a valid NLP summary cache entry (cross-validation
+  // prevents stale cache from a crashed run leaving functions without NLP summaries).
+  // Declaration cards have no NLP-summary cache entry (AST summary, no LLM), so only
+  // their code-cache hash is checked.
+  const tasksToIndex = tasksWithSymbols.filter((task) => {
+    const indexableSymbols = task.symbols.filter((s) => isIndexableKind(s.kind));
+    return !indexableSymbols.every((symbol) => {
       const id = buildFunctionId(task.file, symbol.line_start, symbol.line_end);
       if (cache.entries[id] !== task.hash) return false;
-      // Cross-check: ensure NLP summary exists for this function
-      if (!nlpSummaryCache.entries[id]) return false;
+      // Cross-check: ensure NLP summary exists (function cards only).
+      if (isFunctionKind(symbol.kind) && !nlpSummaryCache.entries[id]) return false;
       return true;
     });
   });
@@ -657,7 +661,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     {
       cardsIndexed,
       filesIndexed,
-      cached: tasksWithFunctions.length - tasksToIndex.length,
+      cached: tasksWithSymbols.length - tasksToIndex.length,
       totalCards: stats.totalCards,
       totalFiles: stats.totalFiles,
       docSectionsIndexed,

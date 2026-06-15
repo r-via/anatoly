@@ -125,7 +125,7 @@ interface VectorRow {
   nlp_vector: number[];
   /** Embedding of docSummary (documentation-oriented semantic space, for gap detection). */
   doc_vector: number[];
-  /** Discriminator: 'function' (default) or 'doc_section'. */
+  /** Discriminator: 'function' (default), 'declaration', or 'doc_section'. */
   type: string;
   /** Doc source: 'internal' (.anatoly/docs/) or 'project' (docs/). Empty for function cards. */
   source: string;
@@ -369,7 +369,7 @@ export class VectorStore {
       // Fresh zero-vector per row to avoid shared reference mutation by Arrow serialization
       nlp_vector: nlpEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
       doc_vector: docEmbeddings?.[i] ?? new Array(getNlpDim()).fill(0),
-      type: 'function',
+      type: card.kind === 'declaration' ? 'declaration' : 'function',
       source: '',
     }));
 
@@ -410,7 +410,9 @@ export class VectorStore {
       .toArray();
 
     const out = results.flatMap((row) => {
-      if (row.type === 'doc_section') return [];
+      // Code-similarity search serves duplication/similarity — function cards only
+      // (declaration and doc_section rows are excluded).
+      if (row.type !== 'function') return [];
       const score = distanceToCosineSimilarity(row._distance ?? 0);
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
@@ -440,7 +442,8 @@ export class VectorStore {
       .toArray();
 
     const out = results.flatMap((row: Record<string, unknown>) => {
-      if (row.type === 'doc_section') return [];
+      // NLP-similarity search serves duplication/similarity — function cards only.
+      if (row.type !== 'function') return [];
       const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
     });
@@ -766,7 +769,9 @@ export class VectorStore {
   }
 
   /**
-   * Get function cards for a specific file (excludes doc_section rows).
+   * Get cards for a specific file: function AND declaration cards (excludes only
+   * doc_section rows). Declarations are included so per-file consumer context and
+   * the per-file average NLP vector see data-only symbols too.
    */
   async getCardsByFile(filePath: string): Promise<FunctionCard[]> {
     if (!this.table) return [];
@@ -779,8 +784,10 @@ export class VectorStore {
   }
 
   /**
-   * Get the average NLP vector for all function cards in a file.
-   * Returns null if no cards or no NLP vectors are available.
+   * Get the average NLP vector across all non-doc cards in a file (function AND
+   * declaration cards). Including declarations is what lets data-only files (no
+   * functions, e.g. a constants/types module) produce a query vector for
+   * reference-doc routing. Returns null if no cards or no NLP vectors exist.
    */
   async getAverageNlpVectorByFile(filePath: string): Promise<number[] | null> {
     if (!this.table) return null;
@@ -826,12 +833,16 @@ export class VectorStore {
       .select(['id', 'filePath', 'name', 'summary', 'docSummary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'referencedImports', 'lastIndexed', 'type', 'doc_vector'])
       .toArray();
     return rows
-      .filter((r) => r.type !== 'doc_section')
+      // Gap detection compares function cards against docs — declaration cards
+      // (and doc_section rows) are excluded so they do not pollute the gap set.
+      .filter((r) => r.type === 'function')
       .map((r) => ({ card: rowToCard(r), docVector: toNumberArray(r.doc_vector) }));
   }
 
   /**
-   * List all cards (without embedding vectors).
+   * List all function cards (without embedding vectors). Excludes declaration
+   * and doc_section rows — preserves the historical "function cards" contract its
+   * callers (status display, docs index sanity check) expect.
    */
   async listAll(): Promise<FunctionCard[]> {
     if (!this.table) return [];
@@ -839,7 +850,7 @@ export class VectorStore {
       .query()
       .select(['id', 'filePath', 'name', 'summary', 'keyConcepts', 'signature', 'behavioralProfile', 'complexityScore', 'calledInternals', 'referencedImports', 'lastIndexed', 'type'])
       .toArray();
-    return rows.filter((r) => r.type !== 'doc_section').map(rowToCard);
+    return rows.filter((r) => r.type === 'function').map(rowToCard);
   }
 
   /**
@@ -1024,6 +1035,7 @@ function rowToCard(row: Record<string, unknown>): FunctionCard {
     complexityScore: typeof row.complexityScore === 'number' ? row.complexityScore : 1,
     calledInternals: safeParseJsonArray(row.calledInternals),
     referencedImports: safeParseJsonArray(row.referencedImports),
+    kind: row.type === 'declaration' ? 'declaration' : 'function',
     lastIndexed: String(row.lastIndexed ?? ''),
   };
 }

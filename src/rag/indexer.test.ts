@@ -13,6 +13,11 @@ import {
   extractCalledInternals,
   extractReferencedImports,
   buildFunctionCards,
+  buildDeclarationCards,
+  enrichCardsWithSummaries,
+  isFunctionKind,
+  isDeclarationKind,
+  isIndexableKind,
   needsReindex,
   loadRagCache,
   saveRagCache,
@@ -259,6 +264,110 @@ export function calc() { return MAX; }`;
     const cards = buildFunctionCards(task, source);
     expect(cards).toHaveLength(1);
     expect(cards[0].name).toBe('calc');
+  });
+
+  it('tags function cards with kind="function"', () => {
+    const source = `export function f() { return 1; }`;
+    const task: Task = {
+      version: 1,
+      file: 'src/f.ts',
+      hash: 'h',
+      symbols: [{ name: 'f', kind: 'function', exported: true, line_start: 1, line_end: 1 }],
+      scanned_at: '2026-02-24T00:00:00.000Z',
+    };
+    expect(buildFunctionCards(task, source)[0].kind).toBe('function');
+  });
+});
+
+describe('symbol-kind predicates', () => {
+  it('classifies function kinds', () => {
+    for (const k of ['function', 'method', 'hook'] as const) {
+      expect(isFunctionKind(k)).toBe(true);
+      expect(isDeclarationKind(k)).toBe(false);
+      expect(isIndexableKind(k)).toBe(true);
+    }
+  });
+
+  it('classifies declaration kinds', () => {
+    for (const k of ['constant', 'variable', 'type', 'enum'] as const) {
+      expect(isDeclarationKind(k)).toBe(true);
+      expect(isFunctionKind(k)).toBe(false);
+      expect(isIndexableKind(k)).toBe(true);
+    }
+  });
+
+  it('treats class as neither (not indexed)', () => {
+    expect(isFunctionKind('class')).toBe(false);
+    expect(isDeclarationKind('class')).toBe(false);
+    expect(isIndexableKind('class')).toBe(false);
+  });
+});
+
+describe('buildDeclarationCards', () => {
+  const source = `export const DWELL_TICKS = 6;
+export interface TrainSpec { id: string; }
+export function run() { return DWELL_TICKS; }`;
+
+  const task: Task = {
+    version: 1,
+    file: 'src/timetable.ts',
+    hash: 'tt1',
+    symbols: [
+      { name: 'DWELL_TICKS', kind: 'constant', exported: true, line_start: 1, line_end: 1 },
+      { name: 'TrainSpec', kind: 'type', exported: true, line_start: 2, line_end: 2 },
+      { name: 'run', kind: 'function', exported: true, line_start: 3, line_end: 3 },
+    ],
+    imports: [],
+    scanned_at: '2026-02-24T00:00:00.000Z',
+  };
+
+  it('builds cards only for declaration kinds', () => {
+    const cards = buildDeclarationCards(task, source);
+    expect(cards.map((c) => c.name).sort()).toEqual(['DWELL_TICKS', 'TrainSpec']);
+  });
+
+  it('synthesizes an AST summary (no LLM) so declarations get a real NLP vector', () => {
+    const card = buildDeclarationCards(task, source).find((c) => c.name === 'DWELL_TICKS')!;
+    expect(card.kind).toBe('declaration');
+    expect(card.summary).toBeTruthy();
+    expect(card.summary).toContain('DWELL_TICKS');
+    expect(card.summary).toContain('Constant');
+    expect(card.keyConcepts).toEqual(['DWELL_TICKS']);
+    expect(card.complexityScore).toBe(1);
+    expect(card.calledInternals).toEqual([]);
+    expect(card.id).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  it('labels a type/interface declaration', () => {
+    const card = buildDeclarationCards(task, source).find((c) => c.name === 'TrainSpec')!;
+    expect(card.summary).toContain('Type definition');
+  });
+});
+
+describe('enrichCardsWithSummaries declaration guard', () => {
+  it('keeps a declaration card and does NOT flag it as NLP-failed', () => {
+    const declCard = {
+      id: 'dc01', filePath: 'src/t.ts', name: 'DWELL_TICKS',
+      signature: 'const DWELL_TICKS = 6', summary: 'Constant DWELL_TICKS. const DWELL_TICKS = 6',
+      keyConcepts: ['DWELL_TICKS'], complexityScore: 1,
+      calledInternals: [] as string[], referencedImports: [] as string[],
+      kind: 'declaration' as const, lastIndexed: '2026-02-24T00:00:00.000Z',
+    };
+    const fnCard = {
+      id: 'fn01', filePath: 'src/t.ts', name: 'run',
+      signature: 'function run()', complexityScore: 1,
+      calledInternals: [] as string[], referencedImports: [] as string[],
+      kind: 'function' as const, lastIndexed: '2026-02-24T00:00:00.000Z',
+    };
+
+    // No summaries supplied (empty map): the function card is flagged failed,
+    // the declaration card is preserved with its synthetic summary intact.
+    const { enrichedCards, nlpFailedIds } = enrichCardsWithSummaries([declCard, fnCard], new Map());
+
+    expect(nlpFailedIds.has('dc01')).toBe(false);
+    expect(nlpFailedIds.has('fn01')).toBe(true);
+    const enrichedDecl = enrichedCards.find((c) => c.id === 'dc01')!;
+    expect(enrichedDecl.summary).toBe(declCard.summary);
   });
 });
 

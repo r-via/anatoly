@@ -244,3 +244,84 @@ describe('VectorStore — schema drift (missing column)', () => {
     expect(store.wasTableReset()).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Declaration cards — non-function symbols (const/type/...) indexed so data-only
+// files still get a per-file NLP vector for reference-doc routing, while staying
+// out of code-similarity / duplication results. Integration against real LanceDB.
+// ---------------------------------------------------------------------------
+
+describe('VectorStore — declaration cards', () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'vs-decl-'));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const CODE_DIM = 768;
+  const NLP_DIM = 384;
+
+  function fnCard(id: string, filePath: string, name: string) {
+    return {
+      id, filePath, name, signature: `function ${name}()`,
+      complexityScore: 1, calledInternals: [] as string[], referencedImports: [] as string[],
+      kind: 'function' as const, lastIndexed: '2026-02-24T00:00:00.000Z',
+    };
+  }
+
+  function declCard(id: string, filePath: string, name: string) {
+    return {
+      id, filePath, name, signature: `const ${name} = 6`,
+      summary: `Constant ${name}. const ${name} = 6`, keyConcepts: [name],
+      complexityScore: 1, calledInternals: [] as string[], referencedImports: [] as string[],
+      kind: 'declaration' as const, lastIndexed: '2026-02-24T00:00:00.000Z',
+    };
+  }
+
+  it('persists kind via the type discriminator and includes declarations in the per-file NLP average', async () => {
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    // A data-only file: a single declaration card, no functions.
+    const card = declCard('aaaaaaaaaaaaaaaa', 'src/timetable.ts', 'DWELL_TICKS');
+    await store.upsert(
+      [card],
+      [new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [new Array(NLP_DIM).fill(0.2)], docEmbeddings: [new Array(NLP_DIM).fill(0)] },
+    );
+
+    // getCardsByFile surfaces the declaration and round-trips its kind.
+    const cards = await store.getCardsByFile('src/timetable.ts');
+    expect(cards).toHaveLength(1);
+    expect(cards[0].kind).toBe('declaration');
+
+    // The data-only file now yields a non-null per-file NLP vector — the fix.
+    const avg = await store.getAverageNlpVectorByFile('src/timetable.ts');
+    expect(avg).not.toBeNull();
+    expect(avg!.some((x) => x !== 0)).toBe(true);
+  });
+
+  it('excludes declaration cards from code-similarity search (duplication path)', async () => {
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    await store.upsert(
+      [fnCard('bbbbbbbbbbbbbbbb', 'src/a.ts', 'compute'), declCard('cccccccccccccccc', 'src/a.ts', 'LIMIT')],
+      [new Array(CODE_DIM).fill(0.5), new Array(CODE_DIM).fill(0.5)],
+      {
+        nlpEmbeddings: [new Array(NLP_DIM).fill(0.5), new Array(NLP_DIM).fill(0.5)],
+        docEmbeddings: [new Array(NLP_DIM).fill(0), new Array(NLP_DIM).fill(0)],
+      },
+    );
+
+    // Query exactly matches both rows' code vector; only the function card returns.
+    const results = await store.search(new Array(CODE_DIM).fill(0.5), 10, 0);
+    expect(results.length).toBe(1);
+    expect(results[0].card.name).toBe('compute');
+    expect(results.some((r) => r.card.name === 'LIMIT')).toBe(false);
+  });
+});
