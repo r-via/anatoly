@@ -6,13 +6,14 @@ import { getLogger } from '../../utils/logger.js';
 import { runWithContext } from '../../utils/log-context.js';
 import type { Logger } from '../../utils/logger.js';
 import { emitPhaseStart, emitPhaseEnd } from './events.js';
+import { AnatolyError } from '../../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 /**
- * The 12 canonical pipeline phases. `doc-conflict-detection` was split into
+ * The 13 canonical pipeline phases. `doc-conflict-detection` was split into
  * two named phases (doc-conflict-bootstrap, doc-conflict-update); the
  * post-doc-update incremental RAG re-index is the named phase
  * `rag-index-update` (was previously an unwrapped, invisible call).
@@ -28,6 +29,7 @@ export const CANONICAL_PHASES = Object.freeze([
   'rag-index-update',
   'doc-conflict-update',
   'review',
+  'invariants',
   'refinement',
   'report',
 ] as const);
@@ -46,6 +48,8 @@ export interface RunPhaseContext {
   phaseDurations: Record<string, number>;
   runLog?: Logger;
   pipelineState?: { setPhase(phase: string): void };
+  /** True for a non-TTY / `--plain` run. Drives console error verbosity. */
+  plain?: boolean;
   /**
    * Run-fatal error latched by the orchestrator (e.g. provider-auth 401).
    * When set, `runPhase` rethrows it after the current phase unwinds, so a
@@ -53,6 +57,29 @@ export interface RunPhaseContext {
    * worker detected it.
    */
   fatalError?: unknown;
+}
+
+/**
+ * Log a phase failure. Full diagnostics (with stack) always go to the run's
+ * ndjson. The console gets the raw pino dump too — EXCEPT in a TUI (non-plain)
+ * run when the error is a hint-bearing {@link AnatolyError}: there the command's
+ * error handler renders a clean title + hint, and emitting the stack dump here
+ * would bury it. Plain mode and hintless / non-Anatoly errors keep the full
+ * console log so nothing is hidden when it actually aids debugging.
+ */
+function logPhaseFailure(
+  ctx: RunPhaseContext,
+  log: Logger,
+  name: PhaseName,
+  err: unknown,
+  headline: string,
+): void {
+  const fields = { err, phase: name, runId: ctx.runId };
+  ctx.runLog?.error(fields, headline);
+  const suppressConsole = !ctx.plain && err instanceof AnatolyError && !!err.hint;
+  if (!suppressConsole) {
+    log.error(fields, headline);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +174,7 @@ export async function runPhase<T>(
     const toThrow = ctx.fatalError ?? err;
 
     // Error logging
-    log.error({ err: toThrow, phase: name, runId: ctx.runId }, `phase "${name}" failed`);
+    logPhaseFailure(ctx, log, name, toThrow, `phase "${name}" failed`);
 
     // Attach phase to error object
     if (toThrow instanceof Error) {
@@ -169,7 +196,7 @@ export async function runPhase<T>(
   if (ctx.fatalError) {
     const fatal = ctx.fatalError;
     if (fatal instanceof Error) Object.assign(fatal, { phase: name });
-    log.error({ err: fatal, phase: name, runId: ctx.runId }, `phase "${name}" aborted (fatal)`);
+    logPhaseFailure(ctx, log, name, fatal, `phase "${name}" aborted (fatal)`);
     throw fatal;
   }
 

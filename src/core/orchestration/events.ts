@@ -113,6 +113,7 @@ export const PHASE_EVENT_CONTRACT = Object.freeze({
     'retry',
     'standby',
   ],
+  invariants: [],
   refinement: [],
   report: [],
 } as const) satisfies Record<PhaseName, readonly OrchestrationEventName[]>;

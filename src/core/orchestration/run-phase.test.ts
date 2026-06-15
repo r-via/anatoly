@@ -6,6 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { runPhase, CANONICAL_PHASES, DuplicatePhaseError, type RunPhaseContext } from './run-phase.js';
 import { getLogContext } from '../../utils/log-context.js';
 import * as loggerModule from '../../utils/logger.js';
+import { AnatolyError, ERROR_CODES } from '../../utils/errors.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -46,7 +47,7 @@ function createMockCtx(overrides?: Partial<RunPhaseContext>): RunPhaseContext {
 // ---------------------------------------------------------------------------
 
 describe('CANONICAL_PHASES', () => {
-  it('should list exactly 12 phases in the correct order', () => {
+  it('should list exactly 13 phases in the correct order', () => {
     expect(CANONICAL_PHASES).toEqual([
       'scan',
       'estimate',
@@ -58,10 +59,11 @@ describe('CANONICAL_PHASES', () => {
       'rag-index-update',
       'doc-conflict-update',
       'review',
+      'invariants',
       'refinement',
       'report',
     ]);
-    expect(CANONICAL_PHASES).toHaveLength(12);
+    expect(CANONICAL_PHASES).toHaveLength(13);
   });
 
   it('should be readonly (frozen)', () => {
@@ -430,6 +432,48 @@ describe('runPhase', () => {
       ).rejects.toBe(fatal);
       const phaseEnds = ctx.timeline.filter((e) => e.event === 'phase_end');
       expect(phaseEnds).toHaveLength(1);
+    });
+  });
+
+  // -----------------------------------------------------------------------
+  // Console error verbosity — clean hint in non-plain mode
+  // -----------------------------------------------------------------------
+
+  describe('console error suppression', () => {
+    const hintErr = (): AnatolyError =>
+      new AnatolyError('quota exhausted', ERROR_CODES.CIRCUIT_OPEN, false, 'resume with: anatoly run --resume');
+
+    it('suppresses the console pino dump for a hint-bearing AnatolyError in non-plain mode (ndjson still gets it)', async () => {
+      const fatal = hintErr();
+      const ctx = createMockCtx({ plain: false });
+      await expect(
+        runPhase(ctx, 'review', async () => { ctx.fatalError = fatal; return 'ok'; }),
+      ).rejects.toBe(fatal);
+      expect(mockLogger.error).not.toHaveBeenCalled(); // console dump suppressed → only the clean hint (rendered upstream)
+      expect(ctx.runLog!.error).toHaveBeenCalled();     // full diagnostics preserved in the run ndjson
+    });
+
+    it('keeps the console dump in plain mode', async () => {
+      const fatal = hintErr();
+      const ctx = createMockCtx({ plain: true });
+      await expect(
+        runPhase(ctx, 'review', async () => { ctx.fatalError = fatal; return 'ok'; }),
+      ).rejects.toBe(fatal);
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('keeps the console dump for a non-Anatoly error in non-plain mode', async () => {
+      const ctx = createMockCtx({ plain: false });
+      const boom = new Error('unexpected crash');
+      await expect(runPhase(ctx, 'review', async () => { throw boom; })).rejects.toBe(boom);
+      expect(mockLogger.error).toHaveBeenCalled();
+    });
+
+    it('keeps the console dump for an AnatolyError WITHOUT a hint in non-plain mode', async () => {
+      const ctx = createMockCtx({ plain: false });
+      const err = new AnatolyError('weird', ERROR_CODES.WRITE_ERROR, false, ''); // explicit empty hint
+      await expect(runPhase(ctx, 'review', async () => { throw err; })).rejects.toBe(err);
+      expect(mockLogger.error).toHaveBeenCalled();
     });
   });
 });

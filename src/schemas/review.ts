@@ -34,6 +34,31 @@ export const SymbolFindingSchema = z.object({
 });
 
 /**
+ * A confirmed cross-representation invariant violation emitted by the
+ * `invariants` pipeline phase (NOT an axis — see SymbolFindingSchema.axis,
+ * whose enum is closed). The phase runs a cheap structural matcher to find
+ * suspect candidate pairs, then an adversarial LLM judge confirms (default:
+ * no finding). Increment 1 carried one invariant kind, `inter_representation`
+ * (two code symbols computing the same named quantity that disagree in value
+ * or direction). Increment 2 adds `numerical_target` (a code numeric constant
+ * table inconsistent with a documented numeric target — e.g. a weight table
+ * that cannot produce the documented RTP). `counterpart` is the other side of
+ * the relationship when known: the paired symbol for `inter_representation`,
+ * the symbol whose comment documents the target for `numerical_target`.
+ */
+export const InvariantFindingSchema = z.object({
+  invariant: z.enum(['inter_representation', 'numerical_target']),
+  line_start: z.int().min(1),
+  line_end: z.int().min(1),
+  detail: z.string().min(10),
+  confidence: z.int().min(0).max(100),
+  counterpart: z.object({
+    file: z.string(),
+    symbol: z.string(),
+  }).optional(),
+});
+
+/**
  * Zod schema for a single symbol-level review entry.
  *
  * Each axis field (correction, overengineering, utility, duplication, tests,
@@ -65,6 +90,12 @@ export const SymbolReviewSchema = z.object({
   // line range and detail. Empty / absent means "single defect, see
   // top-level detail" — fully backward-compatible.
   findings: z.array(SymbolFindingSchema).optional(),
+  // Confirmed cross-representation invariant violations from the
+  // `invariants` pipeline phase (not an axis). Folded into the correction
+  // axis at report time (applyInvariantFindingsToReviews). Empty / absent
+  // means "no invariant finding for this symbol" — fully backward-compatible,
+  // mirrors how `findings` is handled.
+  invariant_findings: z.array(InvariantFindingSchema).optional(),
 }).transform((sym) => {
   // Invariant: duplicate_target populated ⇒ duplication = DUPLICATE.
   // A populated target without the matching verdict is an incoherent state;
@@ -329,6 +360,7 @@ export type Effort = z.infer<typeof EffortSchema>;
 export type Category = z.infer<typeof CategorySchema>;
 export type DuplicateTarget = z.infer<typeof DuplicateTargetSchema>;
 export type SymbolFinding = z.infer<typeof SymbolFindingSchema>;
+export type InvariantFinding = z.infer<typeof InvariantFindingSchema>;
 export type SymbolReview = z.infer<typeof SymbolReviewSchema>;
 
 /**

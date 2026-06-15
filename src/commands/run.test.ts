@@ -101,8 +101,8 @@ describe('picomatch glob matching (replaces matchGlob)', () => {
 // ---------------------------------------------------------------------------
 
 describe('Story 56.8 — canonical phase plumbing', () => {
-  it('CANONICAL_PHASES has exactly 12 entries', () => {
-    expect(CANONICAL_PHASES).toHaveLength(12);
+  it('CANONICAL_PHASES has exactly 13 entries', () => {
+    expect(CANONICAL_PHASES).toHaveLength(13);
   });
 
   it('doc-conflict-bootstrap and doc-conflict-update are distinct, doc-conflict-detection absent', () => {

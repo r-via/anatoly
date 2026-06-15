@@ -93,6 +93,8 @@ describe('buildInitConfig', () => {
     expect(config.models.quality).toBe('anthropic/claude-sonnet-4-6');
     expect(config.models.fast).toBe('anthropic/claude-haiku-4-5');
     expect(config.models.deliberation).toBe('anthropic/claude-opus-4-6');
+    // init enables the invariants phase by default (schema default stays off).
+    expect(config.invariants).toEqual({ enabled: true });
   });
 
   it('includes code_summary when provided', () => {

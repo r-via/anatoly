@@ -550,3 +550,22 @@ describe('adaptV3ToV2 — commands', () => {
     expect(v2).not.toHaveProperty('commands');
   });
 });
+
+describe('adaptV3ToV2 — invariants', () => {
+  it('passes an explicit invariants block through to v2', () => {
+    const v3 = fullV3() as Record<string, unknown>;
+    v3.invariants = { enabled: true };
+    const { v2, parsed } = adapt(v3) as {
+      v2: Record<string, unknown>;
+      parsed: { invariants?: { enabled: boolean } };
+    };
+    expect(v2.invariants).toEqual({ enabled: true });
+    // survives the round-trip through ConfigSchema so run.ts can read it.
+    expect(parsed.invariants?.enabled).toBe(true);
+  });
+
+  it('defaults invariants to disabled when the section is absent', () => {
+    const { parsed } = adapt(fullV3()) as { parsed: { invariants?: { enabled: boolean } } };
+    expect(parsed.invariants?.enabled).toBe(false);
+  });
+});
