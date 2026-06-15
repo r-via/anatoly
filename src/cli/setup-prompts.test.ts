@@ -1056,6 +1056,17 @@ describe('writeFirstRunConfig', () => {
     expect(content).toContain('#   command: npx vitest run --coverage.reporter=json');
   });
 
+  it('renders an active invariants block enabled by default', async () => {
+    await writeFirstRunConfig(dir, { tier: 'lite' });
+    const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
+    // Active (uncommented) — the phase is on for freshly initialized projects.
+    expect(content).toMatch(/^invariants:$/m);
+    expect(content).toContain('  enabled: true');
+    // And it actually takes effect once loaded.
+    const { loadConfig } = await import('../utils/config-loader.js');
+    expect(loadConfig(dir).invariants?.enabled).toBe(true);
+  });
+
   it('renders commented section for runtime with all sub-sections', async () => {
     await writeFirstRunConfig(dir, { tier: 'lite' });
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');

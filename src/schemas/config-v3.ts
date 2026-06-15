@@ -36,6 +36,7 @@ import {
   BadgeConfigSchema,
   SearchConfigSchema,
   NotificationsConfigSchema,
+  InvariantsConfigSchema,
 } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -440,6 +441,7 @@ const PreConfigSchema = z.object({
   }),
   search: SearchConfigSchema.default({}),
   notifications: NotificationsConfigSchema.optional(),
+  invariants: InvariantsConfigSchema.default({ enabled: false }),
   // Restructured v3 sections.
   providers: ProvidersConfigSchema,
   routing: RoutingConfigSchema,

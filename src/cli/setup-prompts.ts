@@ -688,6 +688,12 @@ export function buildAnnotatedV3Yaml(
     '# and internal.mode to "full" for LLM-generated internal pages or "off"',
     '# to disable internal doc generation entirely. See docs for details.',
     '',
+    sectionHeader('invariants'),
+    '# Pre-deliberation invariants phase (NOT an axis): checks cross-representation',
+    '# consistency (code-vs-code and code-vs-doc numerical targets) before',
+    '# deliberation. High-precision, requires RAG. Set enabled: false to skip it.',
+    activeYaml({ invariants: { enabled: true } }),
+    '',
     sectionHeader('runtime (optional — defaults shown)'),
     commentedYaml({
       runtime: {

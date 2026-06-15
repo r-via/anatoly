@@ -234,7 +234,7 @@ export function detectApiKey(providerId: string): string | null {
  */
 export function buildInitConfig(
   selections: WizardSelections,
-): { providers: Record<string, ProviderSelection>; models: Record<string, string>; axes: Record<string, { enabled: boolean }> } {
+): { providers: Record<string, ProviderSelection>; models: Record<string, string>; axes: Record<string, { enabled: boolean }>; invariants: { enabled: boolean } } {
   const providers: Record<string, ProviderSelection> = {};
   for (const [id, sel] of selections.providers) {
     const entry: ProviderSelection = { mode: sel.mode };
@@ -257,7 +257,7 @@ export function buildInitConfig(
     axes[id] = { enabled: true };
   }
 
-  return { providers, models, axes };
+  return { providers, models, axes, invariants: { enabled: true } };
 }
 
 // ---------------------------------------------------------------------------

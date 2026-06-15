@@ -130,10 +130,11 @@ export const AgentsConfigSchema = z.object({
 
 /**
  * Gate for the `invariants` pipeline phase (a pre-deliberation phase, NOT an
- * axis). Defaults to disabled: the phase is opt-in via this flag or the
- * `--invariants` CLI flag while it matures. When disabled the phase is a
- * no-op. High-precision by design — every new finding source defaults hard
- * to "no finding" when uncertain.
+ * axis). `anatoly init` writes this enabled; the schema default stays disabled
+ * so configs that omit the section (and the no-config path) remain a no-op,
+ * and it can be toggled off here or forced on with the `--invariants` CLI flag.
+ * High-precision by design — every new finding source defaults hard to "no
+ * finding" when uncertain.
  */
 export const InvariantsConfigSchema = z.object({
   enabled: z.boolean().default(false),
