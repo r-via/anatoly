@@ -127,12 +127,17 @@ export function mergeDocumentationIntoYaml(
 }
 
 /**
- * Surgically union `globs` into the `scan.exclude` list of an existing YAML
- * string. Used by the `scope` init phase (`anatoly init --phases scope`).
+ * Surgically union scope globs into an existing YAML string. Used by the
+ * `scope` init phase (`anatoly init --phases scope`). Targets two distinct
+ * sequences with distinct semantics:
+ * - `scan.exclude` (the positional `globs`): NOT audited at all
+ *   (fixtures / generated / examples / build output).
+ * - `scan.vendored` (`opts.vendored`): audited, but the best-practices axis
+ *   flags only real defects there (vendored / third-party copied-in code).
  *
  * Contract (see docs/02-Architecture/21-Scope-Reconfiguration-Phase.md §3.3):
- * - Touches ONLY `scan.exclude`; every other section, key, and comment is
- *   preserved byte-for-byte (CST-preserving parse, not a re-dump).
+ * - Touches ONLY `scan.exclude` and `scan.vendored`; every other section, key,
+ *   and comment is preserved byte-for-byte (CST-preserving parse, not a re-dump).
  * - Union + dedupe: each glob ends up present exactly once.
  * - Never deletes: hand-added entries survive.
  * - Idempotent: when nothing is new, returns the input verbatim (no diff).
@@ -144,10 +149,11 @@ export function mergeDocumentationIntoYaml(
 export function mergeScanIntoYaml(
   existingYaml: string,
   globs: string[],
-  opts: { dateStamp?: string } = {},
+  opts: { dateStamp?: string; vendored?: string[] } = {},
 ): string {
-  const toMerge = [...new Set(globs)];
-  if (toMerge.length === 0) return existingYaml;
+  const exclude = [...new Set(globs)];
+  const vendored = [...new Set(opts.vendored ?? [])];
+  if (exclude.length === 0 && vendored.length === 0) return existingYaml;
 
   const doc = parseYamlDoc(existingYaml);
 
@@ -157,26 +163,37 @@ export function mergeScanIntoYaml(
     doc.set('scan', scan);
   }
   if (!isMap(scan)) return existingYaml; // unreachable; satisfies the narrower
-  let seq = scan.get('exclude');
-  if (!isSeq(seq)) {
-    seq = doc.createNode([]);
-    scan.set('exclude', seq);
-  }
-  if (!isSeq(seq)) return existingYaml; // unreachable; satisfies the narrower
-
-  const present = new Set(seq.items.map((it) => String((it as { value?: unknown }).value ?? it)));
-  const toAdd = toMerge.filter((g) => !present.has(g));
-  if (toAdd.length === 0) return existingYaml; // idempotent: no change
+  const scanMap = scan; // narrowed map, stable inside the closure below
 
   const stamp = opts.dateStamp
     ? ` added by anatoly init --phases scope on ${opts.dateStamp}`
     : ' added by anatoly init --phases scope';
-  for (const g of toAdd) {
-    const node = doc.createNode(g);
-    node.comment = stamp;
-    seq.add(node);
-  }
-  return doc.toString();
+
+  // Union `items` into `scan.<key>`, creating the sequence if absent. Returns
+  // whether anything was actually added (drives the idempotent no-diff return).
+  const unionInto = (key: string, items: string[]): boolean => {
+    if (items.length === 0) return false;
+    let seq = scanMap.get(key);
+    if (!isSeq(seq)) {
+      seq = doc.createNode([]);
+      scanMap.set(key, seq);
+    }
+    if (!isSeq(seq)) return false;
+    const present = new Set(seq.items.map((it) => String((it as { value?: unknown }).value ?? it)));
+    const toAdd = items.filter((g) => !present.has(g));
+    if (toAdd.length === 0) return false;
+    for (const g of toAdd) {
+      const node = doc.createNode(g);
+      node.comment = stamp;
+      seq.add(node);
+    }
+    return true;
+  };
+
+  // Call both (no short-circuit) so each sequence is considered independently.
+  const changedExclude = unionInto('exclude', exclude);
+  const changedVendored = unionInto('vendored', vendored);
+  return changedExclude || changedVendored ? doc.toString() : existingYaml;
 }
 
 /**
@@ -617,7 +634,7 @@ export function registerInitCommand(program: Command): void {
                     router: createCliRouter(cfg),
                     files,
                     model,
-                    alreadyExcluded: [...new Set([...cfg.scan.exclude, ...detected])],
+                    alreadyExcluded: [...new Set([...cfg.scan.exclude, ...cfg.scan.vendored, ...detected])],
                     conversationDir,
                   });
                   log.info({ event: 'scope_suggestions', count: res.length, globs: res.map((s) => s.glob) }, 'scope: model proposed exclusions');
@@ -632,8 +649,12 @@ export function registerInitCommand(program: Command): void {
             }
           }
 
-          const allGlobs = [...detected, ...suggestions.map((sg) => sg.glob)];
-          let merged = mergeScanIntoYaml(existing, allGlobs, { dateStamp });
+          // Route by category: vendored code is AUDITED but best-practices
+          // limited (scan.vendored); everything else is not audited at all
+          // (scan.exclude). The deterministic baseline only yields excludes.
+          const excludeGlobs = [...detected, ...suggestions.filter((sg) => sg.category !== 'vendored').map((sg) => sg.glob)];
+          const vendoredGlobs = suggestions.filter((sg) => sg.category === 'vendored').map((sg) => sg.glob);
+          let merged = mergeScanIntoYaml(existing, excludeGlobs, { dateStamp, vendored: vendoredGlobs });
           // No hidden defaults: materialize the commands section if the config
           // predates it, so the model selection is written explicitly like the
           // rest of the yaml. Never overwrites an existing commands section.
@@ -643,12 +664,14 @@ export function registerInitCommand(program: Command): void {
             refresh: cfg.models.fast,
           }, { dateStamp });
           if (merged === existing) {
-            p.log.info('scan.exclude and commands are already present — nothing to add.');
+            p.log.info('scan scope (exclude + vendored) and commands are already present — nothing to add.');
           } else {
             if (suggestions.length > 0) {
               p.note(
-                suggestions.map((sg) => `${sg.glob}  [${sg.category}] ${sg.reason}`).join('\n'),
-                'Model-proposed exclusions',
+                suggestions
+                  .map((sg) => `${sg.glob}  [${sg.category}${sg.category === 'vendored' ? ' → scan.vendored, audited but style-limited' : ' → scan.exclude'}] ${sg.reason}`)
+                  .join('\n'),
+                'Model-proposed scope',
               );
             }
             p.note(merged, 'Preview (scope)');

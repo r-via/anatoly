@@ -146,4 +146,43 @@ describe('buildBestPracticesUserMessage', () => {
     }));
     expect(msg).not.toContain('## Project Dependencies');
   });
+
+  it('includes the unused-import ground truth, listing only genuinely-unused named imports', () => {
+    const task: Task = {
+      ...mockTask,
+      file: 'src/x.ts',
+      imports: [{ source: 'lib', type: 'import', symbols: ['Used', 'Dead'] }],
+    };
+    const fileContent = "import { Used, Dead } from 'lib';\nexport const f = () => Used();\n";
+    const msg = buildBestPracticesUserMessage(createCtx({ task, fileContent }));
+    expect(msg).toContain('unused-import ground truth');
+    expect(msg).toContain('safe to flag for removal): Dead');
+    expect(msg).toContain('do NOT flag any import outside the list above as unused');
+  });
+
+  it('omits the unused-import section when the file has no named imports', () => {
+    const msg = buildBestPracticesUserMessage(createCtx()); // mockTask has no imports
+    expect(msg).not.toContain('unused-import ground truth');
+  });
+});
+
+describe('buildBestPracticesUserMessage — vendored files', () => {
+  const vendoredCfg = parseTestConfig({ scan: { vendored: ['**/components/ui/**'] } });
+  const uiTask: Task = { ...mockTask, file: 'src/components/ui/button.tsx' };
+
+  it('injects the vendored instruction when the file matches scan.vendored', () => {
+    const msg = buildBestPracticesUserMessage(createCtx({ task: uiTask, config: vendoredCfg }));
+    expect(msg).toContain('Vendored / third-party file');
+    expect(msg).toContain('Flag ONLY real defects');
+  });
+
+  it('omits the vendored instruction for non-vendored files', () => {
+    const msg = buildBestPracticesUserMessage(createCtx({ config: vendoredCfg })); // src/utils/format.ts
+    expect(msg).not.toContain('Vendored / third-party file');
+  });
+
+  it('omits the vendored instruction when scan.vendored is empty (default, opt-in)', () => {
+    const msg = buildBestPracticesUserMessage(createCtx({ task: uiTask }));
+    expect(msg).not.toContain('Vendored / third-party file');
+  });
 });

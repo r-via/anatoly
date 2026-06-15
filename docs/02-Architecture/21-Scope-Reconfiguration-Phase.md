@@ -109,15 +109,19 @@ New pure function, string in / string out, hermetically testable (no
 IO, no LLM):
 
 ```
-mergeScanIntoYaml(existingYaml: string, excludes: string[]): string
+mergeScanIntoYaml(existingYaml: string, excludes: string[], opts?: { dateStamp?: string; vendored?: string[] }): string
 ```
 
 Invariants:
 
-1. **Touches only `scan.exclude`.** It never edits `scan.include`
-   without an explicit caller opt-in, and never any other section.
-2. **Union plus dedupe.** Each glob in `excludes` is guaranteed present
-   in `scan.exclude` exactly once after the merge.
+1. **Touches only `scan.exclude` and `scan.vendored`.** It unions `excludes`
+   into `scan.exclude` and `opts.vendored` into `scan.vendored`, never edits
+   `scan.include` without an explicit caller opt-in, and never any other
+   section. `scan.vendored` marks audited-but-best-practices-limited code
+   (vendored / third-party copied in), distinct from `scan.exclude` (not
+   audited at all).
+2. **Union plus dedupe.** Each glob is guaranteed present in its target
+   sequence exactly once after the merge.
 3. **Never deletes.** Entries the user added by hand are preserved. The
    merge only adds.
 4. **Idempotent.** Re-running with the same inputs yields no diff.
@@ -165,7 +169,12 @@ proposeExcludes(params: {
 ```
 
 The phase composes `autoDetectScanGlobs` (always) with `proposeExcludes`
-(TTY only), unions the globs, and feeds them to `mergeScanIntoYaml`. The
+(TTY only), then routes each suggestion by category and feeds both lists to
+`mergeScanIntoYaml`: the `vendored` category goes to `scan.vendored` (those
+files stay audited, but the best-practices axis flags only real defects there,
+no stylistic churn, so divergence from upstream is not amplified), while
+`fixture` / `generated` / `example` plus the deterministic baseline go to
+`scan.exclude` (not audited at all). The
 in-scope file list is rendered to a condensed tree via `buildProjectTree`
 for the prompt; the model sees only the path tree (no file contents), so
 it recognizes non-product code by naming and directory convention. The
@@ -176,8 +185,9 @@ that are high-confidence even under `src/`. Those named conventions are
 Supabase generated database types (`**/supabase/types.ts`,
 `**/database.types.ts`, and the `**/integrations/supabase/types.ts`
 layout) under the `generated` category, and shadcn/ui primitives
-(`**/components/ui/**`, scaffolded by `npx shadcn add`, false-positive
-heavy) under the `vendored` category, alongside generic codegen output
+(`**/components/ui/**`, scaffolded by `npx shadcn add`, style-noise heavy
+but worth auditing for real bugs/dead code) under the `vendored` category
+(routed to `scan.vendored`, not `scan.exclude`), alongside generic codegen output
 (`**/__generated__/**`, `**/*.generated.ts`, `**/routeTree.gen.ts`). The
 category and reason are shown in the confirm preview so the human judges
 each entry. `queryFn` injection keeps it mockable; the
