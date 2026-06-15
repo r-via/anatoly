@@ -6,15 +6,20 @@
  * LLM-assisted audit-scope suggestion (PR 2 of doc 21).
  *
  * Given the project file tree, a single model pass proposes directories or
- * file groups to EXCLUDE from the audit because they are not product surface
- * (fixtures, generated code, examples, vendored). The deterministic
- * `autoDetectScanGlobs` heuristic stays the baseline; this only enriches the
- * candidate list before the surgical merge, and runs only in the interactive
- * `init --scope` path where a human reviews and confirms the diff.
+ * file groups that are not hand-authored product surface, each tagged with a
+ * category so the caller can route it. `fixture` / `generated` / `example`
+ * are EXCLUDED from the audit; `vendored` (third-party code copied in) stays
+ * AUDITED but the best-practices axis flags only real defects there (no style
+ * churn), so the divergence-from-upstream concern is respected without losing
+ * bug / dead-code detection. The deterministic `autoDetectScanGlobs` heuristic
+ * stays the baseline; this only enriches the candidate list before the surgical
+ * merge, and runs only in the interactive `init --scope` path where a human
+ * reviews and confirms the diff.
  *
  * The decision is never applied live: the caller materializes the result into
- * `scan.exclude` (with confirmation), and every later `run` reads the frozen
- * config. See docs/02-Architecture/21-Scope-Reconfiguration-Phase.md.
+ * `scan.exclude` (or `scan.vendored` for the vendored category, with
+ * confirmation), and every later `run` reads the frozen config. See
+ * docs/02-Architecture/21-Scope-Reconfiguration-Phase.md.
  */
 
 import { z } from 'zod';
@@ -26,7 +31,8 @@ import { buildProjectTree } from './project-tree.js';
 export type ExcludeCategory = 'fixture' | 'generated' | 'example' | 'vendored';
 
 export interface ExcludeSuggestion {
-  /** Glob to add to scan.exclude (e.g. "src/__fixtures__/**"). */
+  /** Glob to add to scan.exclude — or scan.vendored when category is 'vendored'
+   *  (audited but best-practices-limited). E.g. "src/__fixtures__/**". */
   glob: string;
   category: ExcludeCategory;
   /** One-line justification, shown in the confirm preview. */
@@ -43,9 +49,13 @@ export const ProposeExcludesResponseSchema = z.object({
   ),
 });
 
-const SYSTEM_PROMPT = `You decide which parts of a repository should be EXCLUDED from a code audit because they are not product surface.
+const SYSTEM_PROMPT = `You classify parts of a repository that are NOT hand-authored product surface, so the audit can treat them appropriately.
 
 You see ONLY the file/directory tree (paths, not contents), so recognize non-product code by well-known naming and directory conventions.
+
+How each category is treated downstream (so you classify, not decide policy):
+- fixture / generated / example → EXCLUDED from the audit entirely.
+- vendored → still AUDITED, but the best-practices axis flags only real defects (bugs, security, dead code), never stylistic churn. So vendored is the safe choice for third-party copied-in code: real bugs are still caught, but style noise that would complicate upstream resync is suppressed.
 
 Eligible categories:
 - fixture: deliberately bad/dead/sample code used to calibrate tools or tests (__fixtures__, __mocks__, gold-set / golden dirs, testdata).
@@ -55,12 +65,12 @@ Eligible categories:
     - Prisma / ORM clients, OpenAPI/Swagger generated SDK clients, generated router trees (e.g. "**/routeTree.gen.ts").
 - example: standalone demos / examples / samples that are not shipped product.
 - vendored: third-party code copied into the repo, including UI primitive libraries scaffolded by a copy-in CLI rather than hand-authored, recognizable by convention, e.g.:
-    - shadcn/ui primitives: "**/components/ui/**" (a directory of many small components each wrapping Radix / headless primitives, added by \`npx shadcn add\`; false-positive heavy, not product logic).
+    - shadcn/ui primitives: "**/components/ui/**" (a directory of many small components each wrapping Radix / headless primitives, added by \`npx shadcn add\`; style-noise heavy but worth auditing for real bugs/dead code).
 
 Rules:
 - Propose GLOBS that match directories or file groups (e.g. "src/__fixtures__/**", "**/components/ui/**", "**/supabase/types.ts"), never an individual product file you hand-pick. The named single-file generated conventions above (e.g. the Supabase types file) are an exception: propose them as their convention glob.
 - The named ecosystem conventions above (Supabase generated types, shadcn/ui under components/ui) ARE high-confidence: propose them whenever the tree matches, even under src/.
-- For anything NOT a named convention: a wrongly-excluded real file is a silently-missed bug, far worse than auditing some noise. When unsure, DO NOT propose it. Bias hard toward fewer, high-confidence exclusions.
+- For the EXCLUDE categories (fixture/generated/example): a wrongly-excluded real file is a silently-missed bug, far worse than auditing some noise. When unsure, DO NOT propose it. Bias hard toward fewer, high-confidence exclusions. (The vendored category is lower-stakes since those files stay audited.)
 - Never propose product source, configuration, or anything you are not confident is non-product.
 - Do NOT propose test files (*.test.*, *.spec.*) or standard vendor/build dirs (node_modules, dist, build, coverage): those are handled elsewhere.
 - Return an empty list if nothing clearly qualifies.`;

@@ -469,6 +469,31 @@ providers:
     expect(parsed.scan.exclude).toContain('src/__fixtures__/**');
     expect((yaml.load(result) as { providers?: unknown }).providers).toBeDefined();
   });
+
+  it('unions opts.vendored into scan.vendored (audited but best-practices-limited)', () => {
+    const result = mergeScanIntoYaml(base, ['src/__fixtures__/**'], { vendored: ['**/components/ui/**'] });
+    const parsed = yaml.load(result) as { scan: { exclude: string[]; vendored: string[] } };
+    expect(parsed.scan.exclude).toContain('src/__fixtures__/**');
+    expect(parsed.scan.vendored).toEqual(['**/components/ui/**']);
+  });
+
+  it('creates scan.vendored when only vendored globs are supplied', () => {
+    const result = mergeScanIntoYaml(base, [], { vendored: ['**/components/ui/**'], dateStamp: '2026-05-30' });
+    const parsed = yaml.load(result) as { scan: { exclude: string[]; vendored: string[] } };
+    expect(parsed.scan.vendored).toContain('**/components/ui/**');
+    // exclude untouched
+    expect(parsed.scan.exclude).toEqual(['node_modules/**', 'dist/**']);
+    // new vendored entry carries the dated origin stamp (glob may be YAML-quoted)
+    expect(result).toContain('# added by anatoly init --phases scope on 2026-05-30');
+  });
+
+  it('is idempotent across both lists (re-running adds nothing)', () => {
+    const once = mergeScanIntoYaml(base, ['src/__fixtures__/**'], { vendored: ['**/components/ui/**'], dateStamp: '2026-05-30' });
+    const twice = mergeScanIntoYaml(once, ['src/__fixtures__/**'], { vendored: ['**/components/ui/**'], dateStamp: '2026-05-30' });
+    expect(twice).toBe(once);
+    // verbatim no-op when nothing new in either list
+    expect(mergeScanIntoYaml(base, [], { vendored: [] })).toBe(base);
+  });
 });
 
 describe('ensureCommandsInYaml', () => {
