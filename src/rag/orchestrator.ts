@@ -174,8 +174,20 @@ function readAndBuildCards(
   // Function cards (LLM-summarized) plus declaration cards (AST summary, no LLM)
   // so data-only files still get an NLP vector for reference-doc routing.
   const cards = [...buildFunctionCards(task, source), ...buildDeclarationCards(task, source)];
-  const toIndex = cards.filter((card) => needsReindex(cache, card, task.hash));
-  if (toIndex.length === 0) return null;
+  // The upsert path deletes a file's existing rows wholesale (store.deleteByFile)
+  // before writing the cards returned here, so a file must be re-indexed as a
+  // COMPLETE unit. Filtering down to only the cards whose hash changed would let
+  // deleteByFile drop the unchanged-but-cached cards and the partial upsert would
+  // never put them back, silently orphaning them. This bit mixed files (functions
+  // + declarations): when a pre-existing file's function cards were already cached
+  // but its declaration cards were newly introduced, the functions were deleted and
+  // not re-inserted. Gate on "does any card need (re)indexing?" to keep skipping
+  // untouched files, but then rebuild the ENTIRE card set. Unchanged cards reuse
+  // their body-hash-keyed NLP summary, so this re-embeds code locally (cheap) without
+  // re-paying the LLM. This also self-heals stale pre-declaration caches on the next
+  // incremental run (the new declaration cards pull the file back into the pipeline).
+  if (!cards.some((card) => needsReindex(cache, card, task.hash))) return null;
+  const toIndex = cards;
 
   return {
     source,

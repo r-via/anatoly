@@ -107,8 +107,8 @@ vi.mock('../core/platform/worker-pool.js', () => ({
   runWorkerPool: workerPoolSpy,
 }));
 
-import { indexProject, ragModeArtifacts } from './orchestrator.js';
-import { buildFunctionCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
+import { indexProject, ragModeArtifacts, processFileForDualIndex } from './orchestrator.js';
+import { buildFunctionCards, buildDeclarationCards, needsReindex, embedCards, loadRagCache, saveRagCache } from './indexer.js';
 import type { Task } from '../schemas/task.js';
 import type { WorkerPoolOptions } from '../core/platform/index.js';
 import type { FunctionCard } from './types.js';
@@ -276,6 +276,81 @@ function makeCard(name: string, filePath: string): FunctionCard {
     lastIndexed: '2024-01-01T00:00:00.000Z',
   };
 }
+
+function makeDeclarationCard(name: string, filePath: string): FunctionCard {
+  return {
+    id: `card-${name}`,
+    filePath,
+    name,
+    signature: `const ${name}`,
+    kind: 'declaration',
+    complexityScore: 1,
+    calledInternals: [],
+    referencedImports: [],
+    lastIndexed: '2024-01-01T00:00:00.000Z',
+  };
+}
+
+// Regression: a file's cards must be re-indexed as a COMPLETE unit because the
+// upsert path deletes the file's rows wholesale (store.deleteByFile) before
+// writing back whatever readAndBuildCards returns. Filtering down to only the
+// changed cards orphaned the unchanged-but-cached ones. This bit MIXED files
+// (already-cached functions + newly-introduced declaration cards), which is
+// exactly what commit c56a3e4 created when it began indexing declarations on
+// top of pre-existing function caches.
+describe('processFileForDualIndex mixed-file orphan regression', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  function mixedTask(): Task {
+    return {
+      version: 1,
+      file: 'src/engine.ts',
+      hash: 'enginehash',
+      symbols: [
+        { name: 'computePayout', kind: 'function', line_start: 1, line_end: 10, exported: true },
+        { name: 'HOUSE_EDGE', kind: 'constant', line_start: 12, line_end: 12, exported: true },
+      ],
+      scanned_at: '2024-01-01T00:00:00.000Z',
+    };
+  }
+
+  it('rebuilds the full card set so a cached function survives a new declaration', async () => {
+    const funcCard = makeCard('computePayout', 'src/engine.ts');
+    const declCard = makeDeclarationCard('HOUSE_EDGE', 'src/engine.ts');
+    vi.mocked(buildFunctionCards).mockReturnValue([funcCard]);
+    vi.mocked(buildDeclarationCards).mockReturnValue([declCard]);
+    // Function already cached (unchanged), declaration is new — the c56a3e4 case.
+    vi.mocked(needsReindex).mockImplementation(
+      (_cache, card) => (card as FunctionCard).name !== 'computePayout',
+    );
+    vi.mocked(embedCards).mockResolvedValue([[0.1], [0.2]]);
+
+    const result = await processFileForDualIndex(
+      '/tmp/test', mixedTask(), { entries: {} }, 'haiku', undefined, true,
+    );
+
+    // Both cards are written back; the deleteByFile that precedes the upsert
+    // would otherwise permanently orphan the un-rebuilt function.
+    const names = result.cards.map((c) => c.name).sort();
+    expect(names).toEqual(['HOUSE_EDGE', 'computePayout']);
+  });
+
+  it('skips a fully-cached file (no card needs reindex)', async () => {
+    const funcCard = makeCard('computePayout', 'src/engine.ts');
+    const declCard = makeDeclarationCard('HOUSE_EDGE', 'src/engine.ts');
+    vi.mocked(buildFunctionCards).mockReturnValue([funcCard]);
+    vi.mocked(buildDeclarationCards).mockReturnValue([declCard]);
+    vi.mocked(needsReindex).mockReturnValue(false);
+
+    const result = await processFileForDualIndex(
+      '/tmp/test', mixedTask(), { entries: {} }, 'haiku', undefined, true,
+    );
+
+    expect(result.cards).toHaveLength(0);
+  });
+});
 
 describe('ragModeArtifacts', () => {
   it('returns lite table name and cache suffix for lite mode', () => {
