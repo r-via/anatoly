@@ -55,7 +55,7 @@ import { loadReviews, aggregateReviews, buildShards, restrictReviewsToEvaluatedA
 import type { ReportData, ShardInfo, TriageStats, RunStats } from './review-data.js';
 import { buildAxisReports, REPORT_AXIS_IDS } from './axis-registry.js';
 import type { AxisReport, ReportAxisId } from './axis-registry.js';
-import { applyPendingConflictsToReviews, applyInvariantFindingsToReviews, aggregateDivergences, renderDivergenceSection, renderStaleReferenceSection, renderDocConflictSection } from './doc-divergences.js';
+import { applyPendingConflictsToReviews, applyInvariantFindingsToReviews, applyDocumentedConstantDivergences, aggregateDivergences, renderDivergenceSection, renderStaleReferenceSection, renderDocConflictSection } from './doc-divergences.js';
 import type { DocModeInfo } from './doc-divergences.js';
 import { renderIndex, renderPublicIndex } from './render-report.js';
 import { renderAxisIndex, renderAxisShard } from './render-axis.js';
@@ -116,6 +116,14 @@ export function generateReport(
     // as the pending-conflict fold (no correction findings in a run that did
     // not evaluate correction).
     applyInvariantFindingsToReviews(reviews);
+    // Promote a documented-constant contradiction (a numeric `doc_divergence`
+    // the correction axis emitted on a reviewed constant/variable, verdict OK
+    // by the doc_divergence policy) into a scorable correction NEEDS_FIX. Runs
+    // last so a symbol the two folds above promoted is already flagged and
+    // skipped (safety-net + dedupe). This is what makes a spec-contradicting
+    // constant (INV-DWELL) a correction finding instead of an unscored
+    // informational divergence.
+    applyDocumentedConstantDivergences(reviews);
   }
   // Drop cached verdicts (and crash sentinels) for axes not evaluated this run
   // before any aggregation, so counts, file verdicts, axis shard dirs, and the

@@ -39,6 +39,7 @@ export {
   renderDocConflictSection,
   applyPendingConflictsToReviews,
   applyInvariantFindingsToReviews,
+  applyDocumentedConstantDivergences,
 } from './doc-divergences.js';
 
 export { makeActId } from './render-axis.js';

@@ -366,6 +366,140 @@ describe('Story 54.9 — AC4: anatoly runs attach surfaces doc mode', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// INV-DWELL — fold a documented-constant contradiction into the correction
+// axis (a numeric `doc_divergence` the correction axis emitted on a reviewed
+// constant/variable, verdict OK) so it becomes a scorable correction NEEDS_FIX.
+// ---------------------------------------------------------------------------
+
+describe('applyDocumentedConstantDivergences', () => {
+  // Build one review with a single symbol and one doc_divergence, both loosely
+  // typed (the schema fields exercised are exact; structural extras are cast
+  // away as the sibling fold tests do).
+  const mkReview = (
+    sym: { name?: string; kind?: string; correction?: string },
+    dv: {
+      axis_origin?: string;
+      symbol?: string | undefined;
+      reference_excerpt?: string;
+    } = {},
+  ) =>
+    ([
+      {
+        file: 'src/timetable.ts',
+        verdict: 'CLEAN',
+        symbols: [
+          {
+            name: sym.name ?? 'DWELL_TICKS',
+            kind: sym.kind ?? 'constant',
+            exported: true,
+            line_start: 3,
+            line_end: 3,
+            correction: sym.correction ?? 'OK',
+            overengineering: 'ACCEPTABLE',
+            utility: 'USED',
+            duplication: 'UNIQUE',
+            tests: 'GOOD',
+            documentation: 'DOCUMENTED',
+            confidence: 90,
+            detail: 'Simple numeric constant; no stated contract contradicts the value.',
+          },
+        ],
+        doc_divergences: [
+          {
+            kind: 'doc_divergence',
+            severity: 'warn',
+            file: 'src/timetable.ts',
+            line: 3,
+            symbol: 'symbol' in dv ? dv.symbol : 'DWELL_TICKS',
+            reference_excerpt: dv.reference_excerpt ?? 'trains dwell at each station for 2 ticks',
+            reference_source: 'README.md#timetable',
+            observed_behavior: 'DWELL_TICKS is set to 6, not 2',
+            axis_origin: dv.axis_origin ?? 'correction',
+          },
+        ],
+      },
+    ] as unknown as Parameters<
+      typeof import('./index.js')['applyDocumentedConstantDivergences']
+    >[0]);
+
+  const symOf = (reviews: unknown) =>
+    (reviews as Array<{ symbols: Array<{ correction: string; detail: string }> }>)[0].symbols[0];
+
+  it('promotes a numeric correction divergence on a constant to NEEDS_FIX with an explanation', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({});
+    expect(applyDocumentedConstantDivergences(reviews)).toBe(1);
+    const s = symOf(reviews);
+    expect(s.correction).toBe('NEEDS_FIX');
+    expect(s.detail).toContain('Documented-constant contradiction');
+    expect(s.detail).toContain('trains dwell at each station for 2 ticks');
+    expect(s.detail).toContain('DWELL_TICKS is set to 6, not 2');
+    expect(s.detail).toContain('anatoly docs arbitrate');
+  });
+
+  it('also promotes a kind=variable symbol', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({ name: 'dwellTicks', kind: 'variable' }, { symbol: 'dwellTicks' });
+    expect(applyDocumentedConstantDivergences(reviews)).toBe(1);
+    expect(symOf(reviews).correction).toBe('NEEDS_FIX');
+  });
+
+  it('leaves the doc_divergence on the review (surfaced, not removed)', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({});
+    applyDocumentedConstantDivergences(reviews);
+    const divs = (reviews as Array<{ doc_divergences: unknown[] }>)[0].doc_divergences;
+    expect(divs).toHaveLength(1);
+  });
+
+  it('skips a divergence from another axis (best_practices / overengineering / tests)', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    for (const origin of ['best_practices', 'overengineering', 'tests']) {
+      const reviews = mkReview({}, { axis_origin: origin });
+      const before = JSON.stringify(reviews);
+      expect(applyDocumentedConstantDivergences(reviews)).toBe(0);
+      expect(JSON.stringify(reviews)).toBe(before);
+    }
+  });
+
+  it('skips when the reference excerpt has no digit (no documented numeric target)', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({}, { reference_excerpt: 'trains dwell briefly at each station' });
+    expect(applyDocumentedConstantDivergences(reviews)).toBe(0);
+    expect(symOf(reviews).correction).toBe('OK');
+  });
+
+  it('skips a function/method symbol (only constant/variable values are folded)', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({ name: 'computeDwell', kind: 'function' }, { symbol: 'computeDwell' });
+    expect(applyDocumentedConstantDivergences(reviews)).toBe(0);
+    expect(symOf(reviews).correction).toBe('OK');
+  });
+
+  it('dedupes: does NOT touch a symbol the correction axis already flagged', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({ correction: 'NEEDS_FIX' });
+    const before = JSON.stringify(reviews);
+    expect(applyDocumentedConstantDivergences(reviews)).toBe(0);
+    expect(JSON.stringify(reviews)).toBe(before);
+  });
+
+  it('skips when the divergence has no symbol, or the symbol is not in the reviewed set', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    expect(applyDocumentedConstantDivergences(mkReview({}, { symbol: undefined }))).toBe(0);
+    expect(applyDocumentedConstantDivergences(mkReview({}, { symbol: 'someOtherConst' }))).toBe(0);
+  });
+
+  it('no-op when there are no divergences on any review', async () => {
+    const { applyDocumentedConstantDivergences } = await import('./index.js');
+    const reviews = mkReview({});
+    (reviews as Array<{ doc_divergences: unknown[] }>)[0].doc_divergences = [];
+    expect(applyDocumentedConstantDivergences(reviews)).toBe(0);
+    expect(symOf(reviews).correction).toBe('OK');
+  });
+});
+
 // AC3 supplemental: divergences don't affect F1 scoring
 describe('Story 54.9 — FR17: divergences are non-penalizing', () => {
   it('computeFileVerdict ignores doc_divergences (verdict stays CLEAN)', async () => {

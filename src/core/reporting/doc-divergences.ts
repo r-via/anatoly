@@ -233,3 +233,70 @@ export function applyInvariantFindingsToReviews(reviews: ReviewFile[]): number {
   }
   return folded;
 }
+
+/**
+ * Fold a documented-constant contradiction into the correction axis.
+ *
+ * When the correction axis reviews a data-only file (e.g. a constant table)
+ * and an authoritative reference doc is in context (documentation lite/full
+ * injects it; RAG declaration indexing — c56a3e4 — is what lets the reference
+ * chunk reach a file that exports no function), the axis emits the
+ * code↔reference contradiction as a `doc_divergence` with verdict OK rather
+ * than a bug: by policy (correction.system.md), a value that contradicts a
+ * documented *target* is "documentation may be stale", not a code defect, so
+ * it is surfaced informationally and never scored. That policy makes a real
+ * spec-contradicting constant (INV-DWELL: `DWELL_TICKS = 6` vs a documented
+ * "2 ticks") invisible to the correction axis the bench scores.
+ *
+ * This fold promotes the narrow, high-confidence slice of those divergences —
+ * a *numeric* contradiction of a *constant/variable* the axis already reviewed —
+ * to an explained correction NEEDS_FIX, the same scorable home
+ * (`axes/correction/shard.N.md`) as every finding. The doc_divergence stays on
+ * the review (the markdown "Divergences code ↔ reference" section still renders
+ * it; arbitration is unaffected): we surface the contradiction, we do not
+ * adjudicate which side is authoritative — the detail points at
+ * `anatoly docs arbitrate`.
+ *
+ * Tight gates keep precision (train-dispatch runs at 1.0):
+ *  - `axis_origin === 'correction'` (only the correction axis's own divergences;
+ *    best_practices/overengineering/tests divergences are out of scope);
+ *  - the divergence anchors a reviewed symbol of kind `constant`/`variable`
+ *    (a documented *value*, not a function-behavior divergence — murkier, higher FP);
+ *  - the `reference_excerpt` contains a digit (a documented numeric target to
+ *    contradict — guards against vague prose divergences);
+ *  - safety-net + dedupe: only flip a symbol whose `correction` is not already a
+ *    defect (`OK`/`-`), so a contradiction the axis (or an earlier fold) already
+ *    caught is NOT double-counted under the bench's bipartite matching.
+ *
+ * Runs AFTER applyPendingConflictsToReviews / applyInvariantFindingsToReviews so
+ * a symbol either of those promoted is already NEEDS_FIX and skipped here.
+ * Mutates `reviews` in place; returns the number folded.
+ */
+export function applyDocumentedConstantDivergences(reviews: ReviewFile[]): number {
+  let folded = 0;
+  for (const rf of reviews) {
+    const divergences = rf.doc_divergences;
+    if (!divergences || divergences.length === 0) continue;
+    for (const dv of divergences) {
+      if (dv.axis_origin !== 'correction') continue;
+      if (!dv.symbol) continue;
+      // A documented numeric target is required: the excerpt must carry a digit.
+      if (!/\d/.test(dv.reference_excerpt)) continue;
+      const sym = rf.symbols.find((s) => s.name === dv.symbol);
+      if (!sym) continue;
+      // Only a documented *value* (constant/variable), never a function-behavior
+      // divergence (out of scope, higher FP).
+      if (sym.kind !== 'constant' && sym.kind !== 'variable') continue;
+      // dedupe / safety-net: correction already flagged ⇒ leave it.
+      if (sym.correction !== 'OK' && sym.correction !== '-') continue;
+      sym.correction = 'NEEDS_FIX';
+      sym.detail =
+        `Documented-constant contradiction: this value contradicts an authoritative ` +
+        `documented target. Reference (${dv.reference_source}): "${dv.reference_excerpt}". ` +
+        `Observed: ${dv.observed_behavior}. ` +
+        'The code contradicts its documented contract here; run `anatoly docs arbitrate` to resolve which side is authoritative.';
+      folded++;
+    }
+  }
+  return folded;
+}
