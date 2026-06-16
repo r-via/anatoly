@@ -101,9 +101,9 @@ describe('Story 34.2 — guard-rails.system.md exists and is registered', () => 
     expect(prompt).toContain('Never output confidence below 50');
   });
 
-  it('registry contains 40 entries', () => {
+  it('registry contains 41 entries', () => {
     const keys = _getRegistryKeys();
-    expect(keys.length).toBe(40);
+    expect(keys.length).toBe(41);
   });
 });
 

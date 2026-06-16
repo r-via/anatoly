@@ -52,6 +52,7 @@ import { runRefinementStage } from './phases/refinement.js';
 import { runReviewPhase } from './phases/review.js';
 import { runInvariantsPhase } from './phases/invariants.js';
 import { runFlowsPhase } from './phases/flows.js';
+import { runFlowDocPhase } from './phases/flow-doc.js';
 import { loadDocConflicts } from '../documentation/index.js';
 import type { ArbitratedFragment } from '../evaluation/index.js';
 import type { RunContext } from '../../commands/run.js';
@@ -158,6 +159,7 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         }
         if (ctx.flows) {
           pipelineState.addTask('flows', 'Modeling user flows');
+          pipelineState.addTask('flow-doc', 'Narrating user-flow page');
         }
         pipelineState.addTask('internal-docs', 'Updating internal docs');
         if (ctx.enableRag) {
@@ -269,6 +271,19 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         if (ctx.flows && !ctx.interrupted) {
           await runPhase(ctx, 'flows', async () => {
             await runFlowsPhase(ctx, handoff, ragContext);
+          });
+        }
+        if (ctx.interrupted) return;
+
+        // --- Phase: flow-doc (doc 23, Stage 2, opt-in) ---
+        // Narrates the deterministic flow skeleton into the human-readable,
+        // ratifiable user-flows.md page via the same agentic Read-only doc
+        // writer as `anatoly docs` (no new transport). Internal-flows doc-source:
+        // context-only, never project-scored, zero findings. No-op when disabled,
+        // when the page already exists, or when no flows artifact was produced.
+        if (ctx.flows && !ctx.interrupted) {
+          await runPhase(ctx, 'flow-doc', async () => {
+            await runFlowDocPhase(ctx);
           });
         }
         if (ctx.interrupted) return;

@@ -164,7 +164,7 @@ describe('universal registry — new domain keys', () => {
     expect(prompt).toContain('verification agent');
   });
 
-  it('registry contains exactly 40 entries after reset', () => {
+  it('registry contains exactly 41 entries after reset', () => {
     const expectedKeys = [
       'utility', 'best_practices', 'documentation', 'correction', 'duplication', 'tests', 'overengineering',
       'best_practices.bash', 'best_practices.python', 'best_practices.rust', 'best_practices.go',
@@ -172,7 +172,7 @@ describe('universal registry — new domain keys', () => {
       'documentation.bash', 'documentation.python', 'documentation.rust', 'documentation.go',
       'documentation.java', 'documentation.csharp', 'documentation.sql', 'documentation.yaml',
       'best_practices.react', 'best_practices.nextjs', 'documentation.react', 'documentation.nextjs',
-      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.updater',
+      'deliberation', 'doc-generation', 'doc-generation.architecture', 'doc-generation.api-reference', 'doc-generation.coherence-review', 'doc-generation.flow', 'doc-generation.updater',
       'rag.nlp-summarizer', '_shared.json-evaluator-wrapper', '_shared.guard-rails',
       'correction.typescript', 'correction.verification',
       'refinement.tier3-investigation',
@@ -309,6 +309,7 @@ describe('Story 33.4 — registry coherence', () => {
         "doc-generation.api-reference",
         "doc-generation.architecture",
         "doc-generation.coherence-review",
+        "doc-generation.flow",
         "doc-generation.updater",
         "documentation",
         "documentation.bash",

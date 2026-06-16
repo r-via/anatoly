@@ -21,3 +21,13 @@ export {
   flowArtifactPath,
   FLOW_ARTIFACT_FILENAME,
 } from './flow-writer.js';
+export {
+  buildFlowGrounding,
+  buildFlowDocPrompt,
+  flowDocPagePath,
+  FLOW_DOC_PAGE_FILENAME,
+  DEFAULT_FLOW_DOC_CAPS,
+  type FlowDocCaps,
+  type FlowDocPrompt,
+  type BuildFlowDocPromptOptions,
+} from './flow-doc-grounding.js';
