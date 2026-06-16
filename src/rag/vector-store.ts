@@ -406,12 +406,18 @@ export class VectorStore {
 
     const results = await this.table
       .search(queryEmbedding)
+      // Prefilter to function rows BEFORE the limit. Declaration and doc_section
+      // rows share this table (since RAG declaration indexing); without the
+      // prefilter they occupy top-K slots at the DB level only to be dropped by
+      // the post-filter below, shrinking the real candidate pool and evicting
+      // genuine near-duplicates on data-heavy files. The prefilter makes
+      // `.limit` count function rows only, restoring the pre-declaration set.
+      .where("type = 'function'")
       .limit(limit)
       .toArray();
 
     const out = results.flatMap((row) => {
-      // Code-similarity search serves duplication/similarity — function cards only
-      // (declaration and doc_section rows are excluded).
+      // Defensive: the prefilter above already restricts to function rows.
       if (row.type !== 'function') return [];
       const score = distanceToCosineSimilarity(row._distance ?? 0);
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];
@@ -438,11 +444,15 @@ export class VectorStore {
     const results = await this.table
       .vectorSearch(queryEmbedding)
       .column('nlp_vector')
+      // Prefilter to function rows before the limit (see `search`): keeps
+      // declaration/doc_section rows from consuming top-K slots and evicting
+      // real near-duplicates on data-heavy files.
+      .where("type = 'function'")
       .limit(limit)
       .toArray();
 
     const out = results.flatMap((row: Record<string, unknown>) => {
-      // NLP-similarity search serves duplication/similarity — function cards only.
+      // Defensive: the prefilter above already restricts to function rows.
       if (row.type !== 'function') return [];
       const score = distanceToCosineSimilarity(Number(row._distance ?? 0));
       return score >= minScore ? [{ card: rowToCard(row), score }] : [];

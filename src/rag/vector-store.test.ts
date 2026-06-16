@@ -324,4 +324,50 @@ describe('VectorStore — declaration cards', () => {
     expect(results[0].card.name).toBe('compute');
     expect(results.some((r) => r.card.name === 'LIMIT')).toBe(false);
   });
+
+  it('declaration flood does not evict a real function from a tight top-K (filter-before-limit)', async () => {
+    // Regression guard for the filter-after-limit dilution bug: declaration
+    // cards share the table, and with a post-filter the `.limit` could fill up
+    // with closer declaration rows and evict the genuine function candidate.
+    // Here 5 declarations sit exactly on the query vector (L2² distance 0,
+    // score 1.0) while the lone function sits slightly off (distance 0.02,
+    // score 0.99) — strictly farther, yet the only thing duplication should
+    // ever see. With a limit of 3 (< the 5 declarations), the pre-fix code
+    // returns nothing (the function never makes the top-3); the prefilter makes
+    // `.limit` count function rows only, so the function survives.
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    const onCode = () => { const v = new Array(CODE_DIM).fill(0); v[0] = 1; return v; };
+    const offCode = () => { const v = new Array(CODE_DIM).fill(0); v[0] = 0.9; v[1] = 0.1; return v; };
+    const onNlp = () => { const v = new Array(NLP_DIM).fill(0); v[0] = 1; return v; };
+    const offNlp = () => { const v = new Array(NLP_DIM).fill(0); v[0] = 0.9; v[1] = 0.1; return v; };
+    const zeroDoc = () => new Array(NLP_DIM).fill(0);
+
+    const fn = fnCard('ffffffffffffffff', 'src/b.ts', 'computePayout');
+    const decls = Array.from({ length: 5 }, (_, i) =>
+      declCard(`dddddddddddddd0${i}`.slice(0, 16), 'src/b.ts', `WEIGHT_${i}`),
+    );
+
+    await store.upsert(
+      [fn, ...decls],
+      [offCode(), ...decls.map(onCode)],
+      {
+        nlpEmbeddings: [offNlp(), ...decls.map(onNlp)],
+        docEmbeddings: [fn, ...decls].map(zeroDoc),
+      },
+    );
+
+    // Code-similarity path (search): the function survives the declaration flood.
+    const codeResults = await store.search(onCode(), 3, 0);
+    expect(codeResults.length).toBe(1);
+    expect(codeResults[0].card.name).toBe('computePayout');
+    expect(codeResults.every((r) => r.card.kind === 'function')).toBe(true);
+
+    // NLP-similarity path (searchByNlpVector): same guarantee.
+    const nlpResults = await store.searchByNlpVector(onNlp(), 3, 0);
+    expect(nlpResults.length).toBe(1);
+    expect(nlpResults[0].card.name).toBe('computePayout');
+    expect(nlpResults.every((r) => r.card.kind === 'function')).toBe(true);
+  });
 });
