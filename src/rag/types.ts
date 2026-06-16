@@ -50,6 +50,18 @@ export const FunctionCardSchema = z.object({
    * existed (graceful pre-rebuild degradation).
    */
   referencedImports: z.array(z.string()).default([]),
+  /**
+   * Card category. `function` (default) is the LLM-summarized callable unit
+   * (function/method/hook). `declaration` is a non-callable top-level symbol
+   * (const/variable/type/enum) indexed so data-only files (no functions) still
+   * get an NLP vector for per-file reference-doc routing. Declaration cards
+   * carry an AST-synthesized summary (no LLM call) and are excluded from
+   * code-similarity / duplication / gap detection — they participate only in
+   * the per-file average NLP vector used to retrieve reference docs. Absent is
+   * treated as `function` (graceful degradation for cards built before this
+   * field existed).
+   */
+  kind: z.enum(['function', 'declaration']).optional(),
   lastIndexed: z.string().datetime(),
 });
 
