@@ -51,6 +51,7 @@ import { runDocBootstrap, runDocUpdate, reindexDocsAfterUpdate } from './phases/
 import { runRefinementStage } from './phases/refinement.js';
 import { runReviewPhase } from './phases/review.js';
 import { runInvariantsPhase } from './phases/invariants.js';
+import { runFlowsPhase } from './phases/flows.js';
 import { loadDocConflicts } from '../documentation/index.js';
 import type { ArbitratedFragment } from '../evaluation/index.js';
 import type { RunContext } from '../../commands/run.js';
@@ -155,6 +156,9 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
           pipelineState.addTask('rag-doc-project', 'Chunking & embedding project docs');
           pipelineState.addTask('rag-doc-internal', 'Chunking & embedding internal docs');
         }
+        if (ctx.flows) {
+          pipelineState.addTask('flows', 'Modeling user flows');
+        }
         pipelineState.addTask('internal-docs', 'Updating internal docs');
         if (ctx.enableRag) {
           pipelineState.addTask('rag-index-update', 'Updating RAG index');
@@ -255,6 +259,18 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         }
 
         const ragContext = await runPhase(ctx, 'rag-index', async () => runRagPhase(ctx, handoff, setup.tasks));
+        if (ctx.interrupted) return;
+
+        // --- Phase: flows (doc 23, Stage 1, opt-in) ---
+        // Deterministic, no-LLM walk that models user flows from the cards +
+        // usage graph and writes the canonical state artifact. Runs right after
+        // RAG (its only inputs are in memory by now) and emits zero scored
+        // findings. No-op when disabled / RAG inactive.
+        if (ctx.flows && !ctx.interrupted) {
+          await runPhase(ctx, 'flows', async () => {
+            await runFlowsPhase(ctx, handoff, ragContext);
+          });
+        }
         if (ctx.interrupted) return;
 
         // --- Phase: update internal docs (pre-review) — Story 55.2 ---

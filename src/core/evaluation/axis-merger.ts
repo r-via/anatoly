@@ -28,6 +28,9 @@ const AXIS_DEFAULTS: Record<AxisId, string> = {
   tests: 'NONE',
   best_practices: 'N/A',
   documentation: 'DOCUMENTED',
+  // Flow applies only to symbols that are a flow ENTRY; every other symbol is
+  // not-applicable ('-'). The evaluator emits OK/NEEDS_FIX only for entries.
+  flow: '-',
 };
 
 // ---------------------------------------------------------------------------
@@ -159,6 +162,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
   const overengineering = findAxisValue(axisMap, 'overengineering', sym.name);
   const tests = findAxisValue(axisMap, 'tests', sym.name);
   const documentation = findAxisValue(axisMap, 'documentation', sym.name);
+  const flow = findAxisValue(axisMap, 'flow', sym.name);
 
   const axisResults: Array<{ id: AxisId; result: AxisSymbolResult | undefined }> = [
     { id: 'utility', result: utility },
@@ -167,6 +171,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     { id: 'overengineering', result: overengineering },
     { id: 'tests', result: tests },
     { id: 'documentation', result: documentation },
+    { id: 'flow', result: flow },
   ];
 
   /** Returns true if the axis was not requested (skipped by --axes filter) */
@@ -242,6 +247,7 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     duplication: resolveAxis('duplication', duplication, ['UNIQUE', 'DUPLICATE'] as const, 'UNIQUE'),
     tests: resolveAxis('tests', tests, ['GOOD', 'WEAK', 'NONE'] as const, 'NONE'),
     documentation: resolveAxis('documentation', documentation, ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'] as const, 'DOCUMENTED'),
+    flow: resolveAxis('flow', flow, ['OK', 'NEEDS_FIX', '-'] as const, '-'),
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,

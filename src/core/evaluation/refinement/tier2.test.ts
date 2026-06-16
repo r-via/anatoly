@@ -23,6 +23,7 @@ function makeSymbol(overrides: Partial<SymbolReview> = {}): SymbolReview {
     duplication: 'UNIQUE',
     tests: 'GOOD',
     documentation: 'DOCUMENTED',
+    flow: '-',
     confidence: 85,
     detail: 'All axes evaluated successfully.',
     duplicate_target: undefined,

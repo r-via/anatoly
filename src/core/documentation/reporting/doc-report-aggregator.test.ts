@@ -50,7 +50,7 @@ describe('aggregateDocReport', () => {
       projectTypes: ['Library'],
       reviews: [
         makeReview('src/core/scanner.ts', [
-          { name: 'scanProject', kind: 'function', exported: true, line_start: 1, line_end: 50, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'UNDOCUMENTED', confidence: 90, detail: 'No JSDoc documentation found for exported function.', duplicate_target: undefined },
+          { name: 'scanProject', kind: 'function', exported: true, line_start: 1, line_end: 50, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'UNDOCUMENTED', confidence: 90, detail: 'No JSDoc documentation found for exported function.', flow: '-', duplicate_target: undefined },
         ]),
       ],
       tasks: [makeTask('src/core/scanner.ts', 250)],
@@ -94,8 +94,8 @@ describe('aggregateDocReport', () => {
       projectTypes: ['Library'],
       reviews: [
         makeReview('src/index.ts', [
-          { name: 'foo', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'DOCUMENTED', confidence: 90, detail: 'Well documented function with JSDoc.', duplicate_target: undefined },
-          { name: 'bar', kind: 'function', exported: true, line_start: 11, line_end: 20, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'UNDOCUMENTED', confidence: 90, detail: 'No JSDoc documentation found for exported function.', duplicate_target: undefined },
+          { name: 'foo', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'DOCUMENTED', confidence: 90, detail: 'Well documented function with JSDoc.', flow: '-', duplicate_target: undefined },
+          { name: 'bar', kind: 'function', exported: true, line_start: 11, line_end: 20, correction: 'OK', overengineering: 'LEAN', utility: 'USED', duplication: 'UNIQUE', tests: 'GOOD', documentation: 'UNDOCUMENTED', confidence: 90, detail: 'No JSDoc documentation found for exported function.', flow: '-', duplicate_target: undefined },
         ]),
       ],
       tasks: [],

@@ -52,6 +52,7 @@ function makeSymbol(overrides: Record<string, unknown> = {}) {
     duplication: 'UNIQUE' as const,
     tests: 'GOOD' as const,
     documentation: '-' as const,
+    flow: '-' as const,
     confidence: 85,
     detail: 'This function is well-implemented and tested.',
     duplicate_target: undefined,

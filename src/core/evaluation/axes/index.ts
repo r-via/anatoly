@@ -13,6 +13,7 @@ import { OverengineeringEvaluator } from './overengineering.js';
 import { TestsEvaluator } from './tests.js';
 import { BestPracticesEvaluator } from './best-practices.js';
 import { DocumentationEvaluator } from './documentation.js';
+import { FlowEvaluator } from './flow.js';
 
 /**
  * All available evaluators in execution order.
@@ -25,6 +26,7 @@ const ALL_EVALUATORS: AxisEvaluator[] = [
   new TestsEvaluator(),
   new BestPracticesEvaluator(),
   new DocumentationEvaluator(),
+  new FlowEvaluator(),
 ];
 
 /**

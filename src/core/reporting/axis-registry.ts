@@ -11,8 +11,8 @@ import type { ReportData, ShardInfo } from './review-data.js';
 
 const SHARD_SIZE = 10;
 
-/** The 7 report axes and their filesystem directory names. */
-export type ReportAxisId = 'correction' | 'utility' | 'duplication' | 'overengineering' | 'tests' | 'documentation' | 'best-practices';
+/** The 8 report axes and their filesystem directory names. */
+export type ReportAxisId = 'correction' | 'utility' | 'duplication' | 'overengineering' | 'tests' | 'documentation' | 'best-practices' | 'flow';
 
 /** All report axis IDs in display order. */
 export const REPORT_AXIS_IDS: readonly ReportAxisId[] = [
@@ -23,6 +23,7 @@ export const REPORT_AXIS_IDS: readonly ReportAxisId[] = [
   'tests',
   'documentation',
   'best-practices',
+  'flow',
 ] as const;
 
 export interface AxisReport {
@@ -52,6 +53,7 @@ export function axisDisplayName(axis: ReportAxisId): string {
     tests: 'Tests',
     documentation: 'Documentation',
     'best-practices': 'Best Practices',
+    flow: 'Flow',
   };
   return names[axis];
 }
@@ -65,6 +67,7 @@ export function axisEmoji(axis: ReportAxisId): string {
     tests: '🧪',
     documentation: '📝',
     'best-practices': '✅',
+    flow: '🔀',
   };
   return emojis[axis];
 }
@@ -78,6 +81,7 @@ export function axisIntro(axis: ReportAxisId): string {
     tests: 'Test coverage quality — missing tests, weak assertions, and untested edge cases.',
     documentation: 'Missing or incomplete doc comments on exported symbols.',
     'best-practices': 'Language-specific best practices and code quality standards.',
+    flow: 'User-flow shape defects detected deterministically from the static flow graph: unwired, redundant, inconsistent-sibling, over-indirect, and effect-asymmetric flows.',
   };
   return intros[axis];
 }
@@ -143,7 +147,7 @@ export function derivePrimaryLanguage(reviews: ReviewFile[]): string | undefined
  * `best-practices` is file-level, not a symbol detail segment.
  */
 const CRASHED_AXIS_ORDER: readonly Exclude<ReportAxisId, 'best-practices'>[] = [
-  'utility', 'duplication', 'correction', 'overengineering', 'tests', 'documentation',
+  'utility', 'duplication', 'correction', 'overengineering', 'tests', 'documentation', 'flow',
 ];
 
 /**
@@ -189,6 +193,8 @@ export function hasAxisFinding(review: ReviewFile, axis: ReportAxisId): boolean 
       return reliable.some((s) => s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported));
     case 'best-practices':
       return review.best_practices?.rules.some((r) => r.status === 'FAIL') ?? false;
+    case 'flow':
+      return reliable.some((s) => s.flow === 'NEEDS_FIX');
   }
 }
 
@@ -273,6 +279,11 @@ export function axisHealthPercent(data: ReportData, axis: ReportAxisId): { pct: 
       const total = reliable.filter((s) => s.documentation !== '-').length;
       const ok = reliable.filter((s) => s.documentation === 'DOCUMENTED').length;
       return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'documented', evaluated: total };
+    }
+    case 'flow': {
+      const total = reliable.filter((s) => s.flow !== '-').length;
+      const ok = reliable.filter((s) => s.flow === 'OK').length;
+      return { pct: total > 0 ? Math.round((ok / total) * 100) : 100, label: 'wired', evaluated: total };
     }
     case 'best-practices': {
       const bpReviews = data.reviews.filter((r) => r.best_practices);

@@ -22,6 +22,7 @@ function allAxesConfig(extra: Record<string, unknown> = {}): Config {
       tests: { enabled: true },
       best_practices: { enabled: true },
       documentation: { enabled: true },
+      flow: { enabled: true },
     },
     ...extra,
   });
@@ -35,10 +36,14 @@ describe('getEnabledEvaluators', () => {
     expect(evaluators.map((e) => e.id)).toEqual([...ALL_AXIS_IDS]);
   });
 
-  it('should return all evaluators with default config (all axes enabled by default)', () => {
+  it('should enable every axis except the opt-in flow axis with the default config', () => {
     const config = makeConfig();
     const evaluators = getEnabledEvaluators(config);
-    expect(evaluators).toHaveLength(ALL_AXIS_IDS.length);
+    const ids = evaluators.map((e) => e.id);
+    // `flow` (doc 23 §7) is opt-in: it consumes the flows-phase artifact and
+    // stays off by default so existing projects do not gain a new axis column.
+    expect(ids).not.toContain('flow');
+    expect(ids).toEqual([...ALL_AXIS_IDS].filter((id) => id !== 'flow'));
   });
 
   it('should return empty when all axes are explicitly absent', () => {
@@ -111,5 +116,6 @@ describe('ALL_AXIS_IDS', () => {
     expect(ALL_AXIS_IDS).toContain('tests');
     expect(ALL_AXIS_IDS).toContain('best_practices');
     expect(ALL_AXIS_IDS).toContain('documentation');
+    expect(ALL_AXIS_IDS).toContain('flow');
   });
 });

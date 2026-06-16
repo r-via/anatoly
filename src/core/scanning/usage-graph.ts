@@ -23,6 +23,14 @@ export interface UsageGraph {
   intraFileRefs: Map<string, Set<string>>;
   /** Files whose language has no import system (SQL, YAML, JSON) — should never be flagged as DEAD */
   noImportFiles: Set<string>;
+  /**
+   * "filePath" → Set<symbol names that file RE-EXPORTS> (`export { x } from`,
+   * `export * from`). A re-export forwards a binding without consuming it, so
+   * this lets a caller tell a public passthrough barrel apart from a real
+   * importer; see {@link getRealConsumers}. Optional: synthetic graphs may omit
+   * it, in which case it reads as "no re-exports known".
+   */
+  reExports?: Map<string, Set<string>>;
 }
 
 /** Record that `importer` uses `symbol` exported from `sourceFile`. */
@@ -503,6 +511,17 @@ export function buildUsageGraph(
   const usages = new Map<string, Set<string>>();
   const typeOnlyUsages = new Map<string, Set<string>>();
   const noImportFiles = new Set<string>();
+  // file → names it re-exports (`export { x } from` / `export * from`). Built
+  // only from AST-enriched TS imports, where the re-export flag is available.
+  const reExports = new Map<string, Set<string>>();
+  const recordReExport = (file: string, symbol: string): void => {
+    let set = reExports.get(file);
+    if (!set) {
+      set = new Set<string>();
+      reExports.set(file, set);
+    }
+    set.add(symbol);
+  };
   // Exports come from the audited tasks only — importer-only tasks (tests)
   // must not introduce phantom export targets.
   const allExportsByFile = buildExportMap(tasks);
@@ -557,9 +576,19 @@ export function buildUsageGraph(
           if (ref.namespace) {
             // `import * as X` / `export * from` → consumes all of the target's exports.
             const exports = allExportsByFile.get(resolved);
-            if (exports) for (const sym of exports) addUsageEdge(targetMap, sym, resolved, task.file);
+            if (exports) {
+              for (const sym of exports) {
+                addUsageEdge(targetMap, sym, resolved, task.file);
+                // `export * from` makes this file a passthrough barrel for every
+                // forwarded name; `import * as X` does not.
+                if (ref.reExport) recordReExport(task.file, sym);
+              }
+            }
           } else if (ref.symbols) {
-            for (const sym of ref.symbols) addUsageEdge(targetMap, sym, resolved, task.file);
+            for (const sym of ref.symbols) {
+              addUsageEdge(targetMap, sym, resolved, task.file);
+              if (ref.reExport) recordReExport(task.file, sym);
+            }
           }
           // A bare ref (side-effect `import './x'`) contributes no symbol edge.
         }
@@ -649,7 +678,7 @@ export function buildUsageGraph(
     'usage graph built',
   );
 
-  return { usages, typeOnlyUsages, intraFileRefs, noImportFiles };
+  return { usages, typeOnlyUsages, intraFileRefs, noImportFiles, reExports };
 }
 
 /**
@@ -763,6 +792,54 @@ export function getTransitiveImporters(
       if (!visited.has(importer) && graph.usages.has(`${symbolName}::${importer}`)) {
         visited.add(importer);
         queue.push(importer);
+      }
+    }
+  }
+  result.delete(sourceFile);
+  return [...result].sort();
+}
+
+/**
+ * Real (non-barrel) consumers of a symbol, seeing THROUGH public re-export
+ * barrels.
+ *
+ * Like {@link getTransitiveImporters} this chases importers transitively, but
+ * it answers the opposite question: which files actually USE the symbol, as
+ * opposed to merely re-publishing it. A file that re-exports the symbol
+ * (`export { S } from './S'`) is the package's public surface, not a consumer;
+ * it is treated as transparent (its own importers are inspected instead) and is
+ * excluded from the result. Every remaining importer is a real consumer.
+ *
+ * When the result is EMPTY the symbol has no internal client: it is reached only
+ * from outside the project, possibly funnelled through a public barrel. That is
+ * exactly the "graph root / external entry point" signal the flow walk needs,
+ * where {@link getTransitiveImporters} wrongly counts the barrel itself: nobody
+ * imports the symbol FROM a top-level public barrel, so its barrel-detection
+ * never fires and the barrel survives as a phantom importer.
+ *
+ * Re-export edges are read from {@link UsageGraph.reExports}; when that map is
+ * absent (synthetic graphs) every importer is treated as a real consumer, i.e.
+ * this degrades to a barrel-unaware transitive importer count.
+ */
+export function getRealConsumers(
+  graph: UsageGraph,
+  symbolName: string,
+  sourceFile: string,
+): string[] {
+  const result = new Set<string>();
+  const visited = new Set<string>([sourceFile]);
+  const queue: string[] = [sourceFile];
+  while (queue.length > 0) {
+    const src = queue.shift()!;
+    for (const importer of getSymbolUsage(graph, symbolName, src)) {
+      if (graph.reExports?.get(importer)?.has(symbolName)) {
+        // Pure passthrough barrel: inspect ITS importers, never count it.
+        if (!visited.has(importer)) {
+          visited.add(importer);
+          queue.push(importer);
+        }
+      } else {
+        result.add(importer); // real consumer
       }
     }
   }

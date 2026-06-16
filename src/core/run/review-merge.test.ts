@@ -21,6 +21,7 @@ function sym(overrides: Partial<SymbolReview> & { name: string; line_start: numb
     duplication: overrides.duplication ?? 'UNIQUE',
     tests: overrides.tests ?? 'GOOD',
     documentation: overrides.documentation ?? 'DOCUMENTED',
+    flow: overrides.flow ?? '-',
     confidence: overrides.confidence ?? 85,
     detail: overrides.detail ?? '[OK] no issue | [USED] imported | [LEAN] simple',
     duplicate_target: overrides.duplicate_target,

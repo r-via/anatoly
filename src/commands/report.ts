@@ -146,12 +146,12 @@ export function registerReportCommand(program: Command): void {
         const countsKey: Record<ReportAxisId, keyof typeof reportData.counts> = {
           correction: 'correction', utility: 'dead', duplication: 'duplicate',
           overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-          'best-practices': 'best_practices',
+          'best-practices': 'best_practices', flow: 'flow',
         };
         const configAxisKey: Record<ReportAxisId, keyof typeof config.axes> = {
           correction: 'correction', utility: 'utility', duplication: 'duplication',
           overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-          'best-practices': 'best_practices',
+          'best-practices': 'best_practices', flow: 'flow',
         };
         const axisScorecard = Object.fromEntries(
           REPORT_AXIS_IDS

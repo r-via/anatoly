@@ -19,6 +19,7 @@ function sym(overrides: Partial<SymbolReview> = {}): SymbolReview {
     duplication: 'UNIQUE',
     tests: 'GOOD',
     documentation: 'DOCUMENTED',
+    flow: '-',
     confidence: 80,
     detail: '',
     duplicate_target: undefined,

@@ -184,6 +184,7 @@ export function generateSkipReview(
       duplication: (!active || active.has('duplication') ? 'UNIQUE' : '-') as 'UNIQUE' | '-',
       tests: '-' as const,
       documentation: '-' as const,
+      flow: '-' as const,
       confidence: 100,
       detail: utilityDetail,
       duplicate_target: undefined,

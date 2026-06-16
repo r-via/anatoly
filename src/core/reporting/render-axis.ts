@@ -120,6 +120,7 @@ const SYMBOL_AXIS_LABELS = {
   overengineering: { field: 'overengineering', labels: ['LEAN', 'ACCEPTABLE', 'OVER'] as const },
   tests: { field: 'tests', labels: ['GOOD', 'WEAK', 'NONE'] as const },
   documentation: { field: 'documentation', labels: ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'] as const },
+  flow: { field: 'flow', labels: ['OK', 'NEEDS_FIX'] as const },
 } as const satisfies Partial<Record<ReportAxisId, { field: keyof SymbolReview; labels: readonly string[] }>>;
 
 function renderVerdictCountTable(
@@ -197,6 +198,8 @@ function axisShardCount(axis: ReportAxisId, reliable: SymbolReview[]): string {
       return String(reliable.filter((s) => s.tests === 'WEAK' || s.tests === 'NONE').length);
     case 'documentation':
       return String(reliable.filter((s) => s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported)).length);
+    case 'flow':
+      return String(reliable.filter((s) => s.flow === 'NEEDS_FIX').length);
     case 'best-practices':
       return '-';
   }
@@ -210,6 +213,7 @@ export function hasAxisSymbolFinding(s: SymbolReview, axis: ReportAxisId): boole
     case 'overengineering': return s.overengineering === 'OVER';
     case 'tests': return s.tests === 'WEAK' || s.tests === 'NONE';
     case 'documentation': return s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported);
+    case 'flow': return s.flow === 'NEEDS_FIX';
     case 'best-practices': return false;
   }
 }
@@ -222,6 +226,7 @@ export function axisSymbolValue(s: SymbolReview, axis: ReportAxisId): string {
     case 'overengineering': return s.overengineering;
     case 'tests': return s.tests;
     case 'documentation': return s.documentation;
+    case 'flow': return s.flow;
     case 'best-practices': return '-';
   }
 }
@@ -234,6 +239,7 @@ function axisAllValues(axis: ReportAxisId): string[] {
     case 'overengineering': return ['LEAN', 'OVER', 'ACCEPTABLE'];
     case 'tests': return ['GOOD', 'WEAK', 'NONE'];
     case 'documentation': return ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'];
+    case 'flow': return ['OK', 'NEEDS_FIX'];
     case 'best-practices': return [];
   }
 }
@@ -331,6 +337,21 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
       lines.push(`- **DOCUMENTED**: Symbol has a complete ${docTerm} covering description, params, and return type.`);
       lines.push(`- **PARTIAL**: ${docTerm} exists but is incomplete (missing params, outdated description, or lacking return type).`);
       lines.push(`- **UNDOCUMENTED**: No ${docTerm} found for an exported symbol. Types and interfaces default to DOCUMENTED.`);
+      break;
+    }
+
+    case 'flow': {
+      lines.push('Deterministic analysis of user-flow shape from the static flow graph (`.anatoly/state/internal-flows/flows.json`). No LLM: every verdict is derived from the call graph and the usage graph, so it is reproducible and free.');
+      lines.push('');
+      lines.push('### Rating Criteria');
+      lines.push('');
+      lines.push('- **OK**: The symbol is a flow entry whose shape matches its siblings and reaches its declared effects without a dead orphan, redundant twin, missing step, excessive indirection, or unbalanced effect.');
+      lines.push('- **NEEDS_FIX**: One of five flow defects, reported as the finding nature:');
+      lines.push('  - *unwired_flow*: the entry is dead (no caller in the usage graph) yet declares effects, so the flow is never reached.');
+      lines.push('  - *redundant_flow*: two or more flows share the exact same steps and effects, so they duplicate one behaviour.');
+      lines.push('  - *inconsistent_siblings*: a flow is missing transform steps that an otherwise-identical sibling performs, so siblings diverge in shape.');
+      lines.push('  - *over_indirect*: the flow routes through more transform hops than the indirection cap before reaching its effect.');
+      lines.push('  - *effect_asymmetry*: the flow creates a record with no balancing teardown counterpart elsewhere in the codebase.');
       break;
     }
 

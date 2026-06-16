@@ -50,6 +50,7 @@ export interface ReportData {
     tests: { high: number; medium: number; low: number };
     documentation: { high: number; medium: number; low: number };
     best_practices: { high: number; medium: number; low: number };
+    flow: { high: number; medium: number; low: number };
   };
   actions: Array<Action & { file: string }>;
 }
@@ -273,6 +274,7 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
     tests: { high: 0, medium: 0, low: 0 },
     documentation: { high: 0, medium: 0, low: 0 },
     best_practices: { high: 0, medium: 0, low: 0 },
+    flow: { high: 0, medium: 0, low: 0 },
   };
 
   const bpSevMap: Record<string, 'high' | 'medium' | 'low'> = { CRITICAL: 'high', HIGH: 'high', MEDIUM: 'medium' };
@@ -289,6 +291,7 @@ export function aggregateReviews(reviews: ReviewFile[], errorFiles?: string[]): 
       if (s.correction === 'NEEDS_FIX' || s.correction === 'ERROR') counts.correction[sev]++;
       if (s.tests === 'WEAK' || s.tests === 'NONE') counts.tests[sev]++;
       if (s.documentation === 'PARTIAL' || (s.documentation === 'UNDOCUMENTED' && s.exported)) counts.documentation[sev]++;
+      if (s.flow === 'NEEDS_FIX') counts.flow[sev]++;
     }
     if (review.best_practices) {
       for (const r of review.best_practices.rules) {

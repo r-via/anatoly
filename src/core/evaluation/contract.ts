@@ -82,7 +82,8 @@ export type AxisId =
   | 'overengineering'
   | 'tests'
   | 'best_practices'
-  | 'documentation';
+  | 'documentation'
+  | 'flow';
 
 /** Input bundle passed to every axis evaluator's `evaluate()` method. */
 export interface AxisContext {

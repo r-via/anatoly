@@ -119,6 +119,8 @@ export interface RunContext {
   deliberation: boolean;
   /** Whether the pre-deliberation invariants phase is enabled (default false) */
   invariants: boolean;
+  /** Whether the deterministic flows phase (doc 23, Stage 1) is enabled (default false) */
+  flows: boolean;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
   /** Total LLM cost accumulated across all review phases */
@@ -199,6 +201,7 @@ export function registerRunCommand(program: Command): void {
     .option('--deliberation', 'enable Opus deliberation pass after axis merge')
     .option('--no-deliberation', 'disable deliberation pass')
     .option('--invariants', 'enable the pre-deliberation invariants phase (cross-representation consistency)')
+    .option('--flows', 'enable the deterministic user-flow modeling phase (doc 23, Stage 1; no-LLM, opt-in)')
     .option('--no-badge', 'skip README badge injection after audit')
     .option('--badge-verdict', 'include audit verdict in README badge')
     .option('--flush-memory', 'clear deliberation memory before running (fresh start)')
@@ -214,7 +217,7 @@ export function registerRunCommand(program: Command): void {
       runId?: string; axes?: string; flushMemory?: boolean;
       cache?: boolean; cacheRefresh?: boolean; retryTimeout?: boolean; resume?: boolean; file?: string; concurrency?: number; sdkConcurrency?: number;
       rebuildRag?: boolean; codeModel?: string; nlpModel?: string;
-      triage?: boolean; deliberation?: boolean; invariants?: boolean;
+      triage?: boolean; deliberation?: boolean; invariants?: boolean; flows?: boolean;
       badge?: boolean; badgeVerdict?: boolean; dryRun?: boolean;
       background?: boolean; notify?: boolean; sourceRoot?: string;
       quickWin?: boolean; defaultsSettings?: boolean;
@@ -685,6 +688,11 @@ export function registerRunCommand(program: Command): void {
         invariants: cmdOpts.invariants === true
           ? true
           : (config.invariants?.enabled ?? false),
+        // --flows force-enables; otherwise honor config (default false). Opt-in
+        // during bring-up (doc 23, Stage 1). No --no-flows flag yet.
+        flows: cmdOpts.flows === true
+          ? true
+          : (config.flows?.enabled ?? false),
         interrupted: false,
         activeAborts: new Set(),
         reviewCounts: { skipped: 0, cached: 0, evaluated: 0 },

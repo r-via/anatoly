@@ -78,6 +78,7 @@ export const SymbolReviewSchema = z.object({
   duplication: z.enum(['UNIQUE', 'DUPLICATE', '-']),
   tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']),
   documentation: z.enum(['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED', '-']).default('-'),
+  flow: z.enum(['OK', 'NEEDS_FIX', '-']).default('-'),
 
   confidence: z.int().min(0).max(100),
 
@@ -117,6 +118,7 @@ export const AxisIdSchema = z.enum([
   'tests',
   'best_practices',
   'documentation',
+  'flow',
 ]);
 
 export const ActionSchema = z.object({

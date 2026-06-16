@@ -468,6 +468,13 @@ function axisVerdictBreakdown(data: ReportData, axis: ReportAxisId): string {
         { label: 'undocumented', count: all.filter((s) => s.documentation === 'UNDOCUMENTED').length },
       ], all.length);
     }
+    case 'flow': {
+      const all = reliable.filter((s) => s.flow !== '-');
+      return countAndFormat([
+        { label: 'wired', count: all.filter((s) => s.flow === 'OK').length },
+        { label: 'needs fix', count: all.filter((s) => s.flow === 'NEEDS_FIX').length },
+      ], all.length);
+    }
     case 'best-practices': {
       const bpReviews = data.reviews.filter((r) => r.best_practices);
       if (bpReviews.length === 0) return 'No data';
@@ -794,6 +801,7 @@ export function renderPublicIndex(data: ReportData, axisReports: AxisReport[], t
     tests: 'tests',
     documentation: 'documentation',
     'best-practices': 'best_practices',
+    flow: 'flow',
   };
   const axisReportSet = new Set(axisReports.map((r) => r.axis));
 

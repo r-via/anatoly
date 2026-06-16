@@ -192,13 +192,13 @@ describe('parseFile — enriched AST imports', () => {
     const ns = await parseFile('a.ts', `import * as NS from './e';\n`);
     expect(ns.imports).toContainEqual({ source: './e', type: 'import', namespace: true, typeOnly: false });
     const star = await parseFile('b.ts', `export * from './h';\n`);
-    expect(star.imports).toContainEqual({ source: './h', type: 'import', namespace: true, typeOnly: false });
+    expect(star.imports).toContainEqual({ source: './h', type: 'import', namespace: true, typeOnly: false, reExport: true });
   });
 
   it('extracts named and type re-exports', async () => {
     const r = await parseFile('a.ts', `export { Re1, Re2 } from './f';\nexport type { RT } from './g';\n`);
-    expect(r.imports).toContainEqual({ source: './f', type: 'import', symbols: ['Re1', 'Re2'], typeOnly: false });
-    expect(r.imports).toContainEqual({ source: './g', type: 'import', symbols: ['RT'], typeOnly: true });
+    expect(r.imports).toContainEqual({ source: './f', type: 'import', symbols: ['Re1', 'Re2'], typeOnly: false, reExport: true });
+    expect(r.imports).toContainEqual({ source: './g', type: 'import', symbols: ['RT'], typeOnly: true, reExport: true });
   });
 
   it('extracts inline import-type queries and records side-effect imports without symbols', async () => {

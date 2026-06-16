@@ -194,7 +194,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
             const configAxisKey: Record<ReportAxisId, keyof typeof ctx.config.axes> = {
               correction: 'correction', utility: 'utility', duplication: 'duplication',
               overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-              'best-practices': 'best_practices',
+              'best-practices': 'best_practices', flow: 'flow',
             };
             return ctx.config.axes[configAxisKey[axis]]?.enabled !== false;
           })
@@ -202,7 +202,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
             const countsKey: Record<ReportAxisId, keyof typeof data.counts> = {
               correction: 'correction', utility: 'dead', duplication: 'duplicate',
               overengineering: 'overengineering', tests: 'tests', documentation: 'documentation',
-              'best-practices': 'best_practices',
+              'best-practices': 'best_practices', flow: 'flow',
             };
             const c = data.counts[countsKey[axis]];
             const { pct, label } = axisHealthPercent(data, axis);

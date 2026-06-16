@@ -350,6 +350,11 @@ export const EvaluationAxesSchema = z.object({
   overengineering: AxisSchema.default(true),
   tests: AxisSchema.default(true),
   best_practices: AxisSchema.default(true),
+  // The `flow` axis (doc 23 section 7) is deterministic and consumes the
+  // `flows` phase artifact, which itself defaults to disabled. It defaults to
+  // OFF so existing projects do not gain a new axis column unless they opt in
+  // (the task-vault bench sets `flow: true` explicitly).
+  flow: AxisSchema.default(false),
   documentation: DocumentationAxisFieldSchema,
 });
 

@@ -29,6 +29,13 @@ export interface ImportRef {
   typeOnly?: boolean;
   /** Namespace import (`import * as X`) or star re-export (`export * from`): consumes all of the source's exports. */
   namespace?: boolean;
+  /**
+   * This ref is a RE-EXPORT (`export { x } from`, `export * from`), not a plain
+   * import: the file forwards the binding to its own importers rather than using
+   * it. Lets the usage graph tell a public passthrough barrel apart from a real
+   * consumer (see `UsageGraph.reExports` / `getRealConsumers`).
+   */
+  reExport?: boolean;
 }
 
 /** Structured doc-comment extracted by a LanguageAdapter. */
@@ -482,7 +489,7 @@ export class TypeScriptAdapter implements LanguageAdapter {
       const clause = node.namedChildren.find((c: TSNode) => c.type === 'export_clause');
       if (!clause) {
         // `export * from './x'` — star re-export.
-        imports.push({ source, type: 'import', namespace: true, typeOnly });
+        imports.push({ source, type: 'import', namespace: true, typeOnly, reExport: true });
         return;
       }
       const names: string[] = [];
@@ -491,7 +498,7 @@ export class TypeScriptAdapter implements LanguageAdapter {
         const nameNode = spec.childForFieldName('name');
         if (nameNode) names.push(nameNode.text);
       }
-      if (names.length) imports.push({ source, type: 'import', symbols: names, typeOnly });
+      if (names.length) imports.push({ source, type: 'import', symbols: names, typeOnly, reExport: true });
     };
 
     // Recursive traversal: top-level imports/exports plus deeper require() and

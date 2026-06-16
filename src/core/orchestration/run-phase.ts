@@ -13,10 +13,12 @@ import { AnatolyError } from '../../utils/errors.js';
 // ---------------------------------------------------------------------------
 
 /**
- * The 13 canonical pipeline phases. `doc-conflict-detection` was split into
+ * The 14 canonical pipeline phases. `doc-conflict-detection` was split into
  * two named phases (doc-conflict-bootstrap, doc-conflict-update); the
  * post-doc-update incremental RAG re-index is the named phase
- * `rag-index-update` (was previously an unwrapped, invisible call).
+ * `rag-index-update` (was previously an unwrapped, invisible call). `flows`
+ * (doc 23, Stage 1) is a deterministic, opt-in, no-LLM phase right after
+ * `rag-index` that models user flows from the cards + usage graph.
  */
 export const CANONICAL_PHASES = Object.freeze([
   'scan',
@@ -25,6 +27,7 @@ export const CANONICAL_PHASES = Object.freeze([
   'bootstrap-doc',
   'doc-conflict-bootstrap',
   'rag-index',
+  'flows',
   'internal-docs',
   'rag-index-update',
   'doc-conflict-update',

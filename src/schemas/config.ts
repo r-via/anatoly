@@ -61,6 +61,7 @@ export const AxesConfigSchema = z.object({
   tests: AxisConfigSchema.optional(),
   best_practices: AxisConfigSchema.optional(),
   documentation: AxisConfigSchema.optional(),
+  flow: AxisConfigSchema.optional(),
 });
 
 // --- v2.0 Providers ---
@@ -144,6 +145,22 @@ export const AgentsConfigSchema = z.object({
  * finding" when uncertain.
  */
 export const InvariantsConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+});
+
+// --- Flows phase ---
+
+/**
+ * Gate for the `flows` pipeline phase (a deterministic, LLM-free phase that
+ * walks the cross-file reference graph to derive the structured user-flow
+ * artifact, NOT an axis). Runs right after the RAG phase (the earliest point
+ * cards + usage-graph are co-resident) and is gated on RAG being active. The
+ * schema default stays disabled so configs that omit the section (and the
+ * no-config path) remain a no-op during Stage-1 bring-up; it can be toggled on
+ * here or forced on with the `--flows` CLI flag. Emits zero scored findings, so
+ * enabling it can never perturb existing run scores (design invariant I1).
+ */
+export const FlowsConfigSchema = z.object({
   enabled: z.boolean().default(false),
 });
 
@@ -325,6 +342,7 @@ export const ConfigSchema = z.object({
   }),
   agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
   invariants: InvariantsConfigSchema.default({ enabled: false }),
+  flows: FlowsConfigSchema.default({ enabled: false }),
   commands: CommandsConfigSchema.optional(),
   runtime: RuntimeConfigSchema.default({
     timeout_per_call: 600,
@@ -341,6 +359,11 @@ export const ConfigSchema = z.object({
     tests: { enabled: true },
     best_practices: { enabled: true },
     documentation: { enabled: true },
+    // The `flow` axis (doc 23 section 7) is deterministic and consumes the
+    // `flows` phase artifact, which itself defaults to disabled. It defaults to
+    // OFF (opt-in) so existing projects do not gain a new axis column unless
+    // they enable it; mirrors `EvaluationAxesSchema.flow` in config-v3.ts.
+    flow: { enabled: false },
   }),
   // Other sections
   rag: RagConfigSchema.default({ enabled: true, code_model: 'auto', nlp_model: 'auto', code_weight: 0.6 }),
@@ -369,6 +392,7 @@ export type ProvidersConfig = z.infer<typeof ProvidersConfigSchema>;
 export type ModelsConfig = z.infer<typeof ModelsConfigSchema>;
 export type AgentsConfig = z.infer<typeof AgentsConfigSchema>;
 export type InvariantsConfig = z.infer<typeof InvariantsConfigSchema>;
+export type FlowsConfig = z.infer<typeof FlowsConfigSchema>;
 export type RuntimeConfig = z.infer<typeof RuntimeConfigSchema>;
 export type TelegramNotificationConfig = z.infer<typeof TelegramNotificationSchema>;
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;

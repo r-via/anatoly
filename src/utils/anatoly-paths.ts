@@ -43,6 +43,7 @@ export type AnatolyArea =
   | 'cache/nlp-summaries'
   | 'state'
   | 'state/internal-docs'
+  | 'state/internal-flows'
   | 'cache'
   | 'cache/rag'
   | 'cache/rag/lancedb'
