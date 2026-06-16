@@ -16,6 +16,8 @@
 // real module boundary that callers' tests can mock.
 // ---------------------------------------------------------------------------
 
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { TransportRouter } from '../core/transports/index.js';
 import type { VectorStore } from './vector-store.js';
 import { indexDocSections, areDocTreesIdentical, resolveReferenceDocFiles } from './doc-indexer.js';
@@ -30,6 +32,15 @@ export interface IndexDocSourcesOptions {
   docsDir: string;
   /** Internal docs directory relative to projectRoot (e.g. `.anatoly/state/internal-docs`). */
   internalDocsDir: string;
+  /**
+   * Internal flows directory relative to projectRoot (e.g.
+   * `.anatoly/state/internal-flows`). When provided AND it contains `.md`
+   * pages, the generated user-flow page (doc 23) is indexed as a third,
+   * internal-like `'flow'` doc source: context-only, never project-scored,
+   * never aliased. Omit (or point at a missing/empty dir) to skip — a no-op
+   * that keeps the run bench-neutral until a flow page exists.
+   */
+  internalFlowsDir?: string;
   /** Base cache suffix; internal docs use `${cacheSuffix}-internal`. */
   cacheSuffix: string;
   /** Model for semantic chunking. */
@@ -67,6 +78,9 @@ export interface IndexDocSourcesResult {
   projectDocsCached: boolean;
   internalDocSections: number;
   internalDocsCached: boolean;
+  /** User-flow page sections indexed under source `'flow'` (0 when no page exists). */
+  flowDocSections: number;
+  flowDocsCached: boolean;
   /** Effective docs-identity verdict used for this pass. */
   docsIdentical: boolean;
   /** Total LLM cost (USD) for doc chunking across both sources. */
@@ -92,6 +106,7 @@ export async function indexDocSources(
     vectorStore: store,
     docsDir,
     internalDocsDir,
+    internalFlowsDir,
     cacheSuffix,
     chunkModel,
     referencePaths,
@@ -111,6 +126,8 @@ export async function indexDocSources(
   let projectDocsCached = false;
   let internalDocSections = 0;
   let internalDocsCached = false;
+  let flowDocSections = 0;
+  let flowDocsCached = false;
   let costUsd = 0;
 
   // Check if docs/ and the internal tree are byte-identical to avoid
@@ -210,12 +227,38 @@ export async function indexDocSources(
     }
   }
 
+  // Third source: the generated user-flow page (doc 23), indexed under
+  // source 'flow'. Internal-like (context-only, never aliased to project).
+  // Gated on the caller supplying the dir AND a `.md` page existing, so the
+  // common case (no flow page yet) is a silent no-op rather than a noisy
+  // "no flow docs/ directory found" log. The narrated flow page is the only
+  // `.md` in this tree; flows.json (the skeleton artifact) is JSON and never
+  // globbed.
+  if (internalFlowsDir && existsSync(resolve(projectRoot, internalFlowsDir))) {
+    try {
+      const flowResult = await indexDocSections({
+        ...sharedOpts,
+        docsDir: internalFlowsDir,
+        cacheSuffix: `${cacheSuffix}-flow`,
+        docSource: 'flow',
+      });
+      flowDocSections = flowResult.sections;
+      flowDocsCached = flowResult.cached;
+      costUsd += flowResult.costUsd;
+      docSectionsIndexed += flowDocSections;
+    } catch (err) {
+      onLog(`flow doc section indexing failed: ${(err as Error).message}`);
+    }
+  }
+
   return {
     docSectionsIndexed,
     projectDocSections,
     projectDocsCached,
     internalDocSections,
     internalDocsCached,
+    flowDocSections,
+    flowDocsCached,
     docsIdentical,
     costUsd,
   };

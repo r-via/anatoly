@@ -77,6 +77,19 @@ describe('renderInternalDocsContext', () => {
     expect(result).toContain('internal doc');
   });
 
+  it('doc 23: includes the flow page (source flow) as weak context alongside internal docs', () => {
+    const result = renderInternalDocsContext(
+      [
+        { path: 'docs/api.md', content: 'project doc', source: 'project' },
+        { path: '.anatoly/state/internal-flows/user-flows.md', content: 'flow narration', source: 'flow' },
+      ],
+      makeConfig('full'),
+    );
+    expect(result).toContain('flow narration');
+    expect(result).not.toContain('project doc');
+    expect(result).toContain('### `.anatoly/state/internal-flows/user-flows.md`');
+  });
+
   it('handles docs with missing source field as non-internal', () => {
     const result = renderInternalDocsContext(
       [{ path: 'docs/api.md', content: 'no source field' }],

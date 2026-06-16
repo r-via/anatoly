@@ -12,6 +12,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import type { VectorStore } from './vector-store.js';
 
 const indexDocSectionsMock = vi.fn();
@@ -120,5 +123,52 @@ describe('indexDocSources', () => {
     expect(opts.onLog).toHaveBeenCalledWith(expect.stringContaining('doc section indexing failed'));
     expect(r.projectDocSections).toBe(0);
     expect(r.internalDocSections).toBe(5);
+  });
+
+  it('internalFlowsDir absent → flow source skipped (bench-neutral no-op)', async () => {
+    const store = makeStore();
+    const r = await indexDocSources(baseOpts(store)); // no internalFlowsDir
+
+    expect(indexDocSectionsMock).toHaveBeenCalledTimes(2); // project + internal only
+    expect(r.flowDocSections).toBe(0);
+    expect(r.flowDocsCached).toBe(false);
+  });
+
+  it('internalFlowsDir given but the dir does not exist → flow source skipped', async () => {
+    const store = makeStore();
+    const r = await indexDocSources({
+      ...baseOpts(store),
+      internalFlowsDir: '.anatoly/state/internal-flows', // /proj does not exist
+    });
+
+    expect(indexDocSectionsMock).toHaveBeenCalledTimes(2);
+    expect(r.flowDocSections).toBe(0);
+  });
+
+  it('internalFlowsDir present on disk → indexes flow as a third source (docSource flow, -flow cache)', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'anatoly-flow-'));
+    mkdirSync(join(root, '.anatoly', 'state', 'internal-flows'), { recursive: true });
+    try {
+      const store = makeStore();
+      const r = await indexDocSources({
+        ...baseOpts(store),
+        projectRoot: root,
+        internalFlowsDir: '.anatoly/state/internal-flows',
+      });
+
+      expect(indexDocSectionsMock).toHaveBeenCalledTimes(3); // project + internal + flow
+      const flowCall = indexDocSectionsMock.mock.calls[2][0] as {
+        docSource?: string; docsDir?: string; cacheSuffix?: string;
+      };
+      expect(flowCall.docSource).toBe('flow');
+      expect(flowCall.docsDir).toBe('.anatoly/state/internal-flows');
+      expect(flowCall.cacheSuffix).toBe('advanced-flow');
+      expect(r.flowDocSections).toBe(3);
+      expect(r.docSectionsIndexed).toBe(9); // 3 project + 3 internal + 3 flow
+      // Flow is never aliased to project.
+      expect(store.aliasDocSource).not.toHaveBeenCalled();
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });

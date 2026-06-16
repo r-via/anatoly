@@ -95,12 +95,31 @@ describe('buildDocumentationUserMessage', () => {
     const msg = buildDocumentationUserMessage(createCtx({
       docsTree: 'docs/\n└── scanner.md',
       relevantDocs: [
-        { path: 'docs/scanner.md', content: '# Scanner Module\n\nScans TypeScript files.' },
+        { path: 'docs/scanner.md', content: '# Scanner Module\n\nScans TypeScript files.', source: 'project' },
       ],
     }));
     expect(msg).toContain('Relevant Documentation Pages');
     expect(msg).toContain('docs/scanner.md');
     expect(msg).toContain('Scanner Module');
+  });
+
+  it('doc 23: the flow page (source flow) is context-only, never the scored bucket', () => {
+    const msg = buildDocumentationUserMessage(createCtx({
+      docsTree: 'docs/\n└── scanner.md',
+      relevantDocs: [
+        { path: 'docs/scanner.md', content: 'SCORED scanner doc', source: 'project' },
+        { path: '.anatoly/state/internal-flows/user-flows.md', content: 'FLOW narration body', source: 'flow' },
+      ],
+    }));
+    // Scored bucket contains only the project doc.
+    const scoredIdx = msg.indexOf('USE FOR SCORING');
+    const flowIdx = msg.indexOf('FLOW narration body');
+    expect(scoredIdx).toBeGreaterThan(-1);
+    expect(msg).toContain('SCORED scanner doc');
+    // The flow page is rendered, but in the DO-NOT-score context section.
+    expect(flowIdx).toBeGreaterThan(-1);
+    expect(msg.slice(scoredIdx, flowIdx)).not.toContain('FLOW narration body');
+    expect(msg).toContain('DO NOT use for scoring');
   });
 
   it('should not show relevant docs section when docsTree present but no matching docs', () => {

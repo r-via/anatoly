@@ -18,7 +18,7 @@ import type { Task } from '../../schemas/task.js';
 import type { Config } from '../../schemas/config.js';
 import type { UsageGraph } from '../scanning/index.js';
 import type { FileDependencyContext } from '../scanning/index.js';
-import type { SimilarityResult } from '../../rag/types.js';
+import type { SimilarityResult, DocSource } from '../../rag/types.js';
 import type { Action, DocDivergence } from '../../schemas/review.js';
 import type { UserInstructions } from '../../utils/user-instructions.js';
 import type { ReferenceDoc } from '../documentation/index.js';
@@ -131,8 +131,10 @@ export interface AxisContext {
 export interface RelevantDoc {
   path: string;
   content: string;
-  /** Origin of the doc: 'project' (docs/) or 'internal' (.anatoly/docs/). */
-  source?: 'project' | 'internal';
+  /** Origin of the doc (see {@link DocSource}): 'project' (docs/, scored), 'internal'
+   * (.anatoly/state/internal-docs/, context-only), or 'flow'
+   * (.anatoly/state/internal-flows/, the doc 23 user-flow page, context-only). */
+  source?: DocSource;
 }
 
 /** Per-symbol output record produced by an axis evaluator. */

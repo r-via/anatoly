@@ -10,6 +10,7 @@ import { globSync } from 'tinyglobby';
 import { embedNlpBatch } from './embeddings.js';
 import type { TransportRouter } from '../core/transports/index.js';
 import type { VectorStore } from './vector-store.js';
+import type { DocSource } from './types.js';
 
 // ---------------------------------------------------------------------------
 // Doc section cache (stored in cache_{lite|advanced}.json → docEntries key)
@@ -594,7 +595,7 @@ export interface DocIndexOptions {
   /** Max parallel file processing (default 4, should match code indexing concurrency). */
   concurrency?: number;
   /** Doc source discriminator for the vector store. */
-  docSource?: 'internal' | 'project';
+  docSource?: DocSource;
 }
 
 /** Result of doc section indexing. */
@@ -616,7 +617,7 @@ export interface DocIndexResult {
 export async function indexDocSections(options: DocIndexOptions): Promise<DocIndexResult> {
   const { projectRoot, vectorStore, files: filesOpt, docsDir = 'docs', cacheSuffix = 'lite', onLog, onProgress, onFileStart, onFileDone, isInterrupted, concurrency = 4, docSource = 'project' } = options;
 
-  const sourceLabel = docSource === 'internal' ? 'internal' : 'project';
+  const sourceLabel = docSource;
 
   // File enumeration: when an explicit `files` list is provided (typically
   // resolved from `documentation.reference.paths`), use it verbatim. Otherwise

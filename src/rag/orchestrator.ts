@@ -644,6 +644,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     vectorStore: store,
     docsDir: options.docsDir ?? 'docs',
     internalDocsDir: join('.anatoly', 'state', 'internal-docs'),
+    internalFlowsDir: join('.anatoly', 'state', 'internal-flows'),
     cacheSuffix,
     chunkModel: options.indexModel,
     referencePaths: options.referencePaths,

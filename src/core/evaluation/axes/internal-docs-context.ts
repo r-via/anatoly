@@ -30,7 +30,10 @@ export function renderInternalDocsContext(
   // Only inject in full mode — lite and off skip internal docs context
   if (resolveDocMode(config) !== 'full') return '';
 
-  const internalDocs = relevantDocs?.filter((d) => d.source === 'internal') ?? [];
+  // Internal-like sources are weak supplementary context: 'internal' (generated
+  // module docs) and 'flow' (the doc 23 user-flow page). 'project' is the scored
+  // ground-truth and is rendered separately, so it is excluded here.
+  const internalDocs = relevantDocs?.filter((d) => d.source === 'internal' || d.source === 'flow') ?? [];
   if (internalDocs.length === 0) return '';
 
   const parts: string[] = [];

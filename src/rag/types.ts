@@ -88,6 +88,17 @@ export interface RagStats {
   cardsWithSummary: number;
 }
 
+/**
+ * Where a doc section was indexed from:
+ * - `'internal'`: `.anatoly/state/internal-docs/` — Anatoly-generated module docs,
+ *   context-only (never scored).
+ * - `'project'`: `docs/` — human-authored project docs, the scored ground-truth.
+ * - `'flow'`: `.anatoly/state/internal-flows/` — the generated user-flow page
+ *   (doc 23). Internal-like: context-only, watched by doc-conflict, retrievable by
+ *   the documentation axis, arbitrable; never project-scored.
+ */
+export type DocSource = 'internal' | 'project' | 'flow';
+
 /** A doc section entry for listing purposes. */
 export interface DocSectionEntry {
   id: string;
@@ -95,6 +106,6 @@ export interface DocSectionEntry {
   name: string;
   summary: string;
   lastIndexed: string;
-  /** 'internal' (.anatoly/docs/) or 'project' (docs/). */
-  source: 'internal' | 'project';
+  /** Where the section was indexed from (see {@link DocSource}). */
+  source: DocSource;
 }

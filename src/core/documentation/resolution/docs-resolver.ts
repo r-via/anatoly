@@ -7,6 +7,7 @@ import { join, relative, dirname, basename, sep } from 'node:path';
 import type { RelevantDoc } from '../../evaluation/contract.js';
 import { getDocsDir, type Config } from '../../../schemas/config.js';
 import type { VectorStore } from '../../../rag/vector-store.js';
+import type { DocSource } from '../../../rag/types.js';
 
 const MAX_PAGES = 3;
 const MAX_LINES_PER_PAGE = 300;
@@ -348,12 +349,16 @@ export async function resolveRelevantDocsViaRag(
 
     if (!content) continue;
 
-    // Infer source from file path
-    const source: 'project' | 'internal' = result.card.filePath.startsWith('.anatoly/')
-      ? 'internal'
-      : 'project';
+    // Infer source from file path. The doc 23 user-flow page lives under
+    // `.anatoly/state/internal-flows/` and is tagged 'flow'; other `.anatoly/`
+    // pages are internal module docs. Both share the non-project budget bucket.
+    const source: DocSource = result.card.filePath.startsWith('.anatoly/state/internal-flows')
+      ? 'flow'
+      : result.card.filePath.startsWith('.anatoly/')
+        ? 'internal'
+        : 'project';
 
-    // Check per-source token budget
+    // Check per-source token budget (project vs. everything-else)
     const usedChars = source === 'project' ? projectChars : internalChars;
     if (usedChars + content.length > halfMaxChars) {
       const remaining = halfMaxChars - usedChars;

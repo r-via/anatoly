@@ -76,9 +76,13 @@ export function buildDocumentationUserMessage(ctx: AxisContext): string {
   }
   parts.push('');
 
-  // Separate project docs (scoring) from internal docs (context only) — Story 29.21
-  const projectDocs = ctx.relevantDocs?.filter(d => d.source !== 'internal') ?? [];
-  const internalDocs = ctx.relevantDocs?.filter(d => d.source === 'internal') ?? [];
+  // Separate project docs (scoring) from internal/flow docs (context only) —
+  // Story 29.21. Only `'project'` is the scored ground-truth; `'internal'`
+  // (generated module docs) and `'flow'` (the doc 23 user-flow page) are
+  // context-only, so the split keys on `=== 'project'` (not `!== 'internal'`)
+  // to keep flow out of the scored bucket.
+  const projectDocs = ctx.relevantDocs?.filter(d => d.source === 'project') ?? [];
+  const internalDocs = ctx.relevantDocs?.filter(d => d.source !== 'project') ?? [];
 
   if (ctx.docsTree || projectDocs.length > 0) {
     if (ctx.docsTree) {

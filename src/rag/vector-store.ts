@@ -5,7 +5,7 @@
 import { connect, type Connection, type Table } from '@lancedb/lancedb';
 import { mkdirSync } from 'node:fs';
 import { anatolyPath } from '../utils/anatoly-paths.js';
-import type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry } from './types.js';
+import type { FunctionCard, SimilarityResult, RagStats, DocSectionEntry, DocSource } from './types.js';
 import { getCodeDim, getNlpDim } from './embeddings.js';
 import { buildDocSectionId, remapDocPath } from './doc-indexer.js';
 import { getLogger } from '../utils/logger.js';
@@ -127,7 +127,7 @@ interface VectorRow {
   doc_vector: number[];
   /** Discriminator: 'function' (default), 'declaration', or 'doc_section'. */
   type: string;
-  /** Doc source: 'internal' (.anatoly/docs/) or 'project' (docs/). Empty for function cards. */
+  /** Doc source: 'internal', 'project', or 'flow' (see {@link DocSource}). Empty for function cards. */
   source: string;
 }
 
@@ -473,7 +473,7 @@ export class VectorStore {
     queryEmbedding: number[],
     limit: number = 5,
     minScore: number = 0.50,
-    docSource?: 'internal' | 'project',
+    docSource?: DocSource,
     context?: RagQueryContext,
   ): Promise<SimilarityResult[]> {
     if (!this.table) return [];
@@ -507,7 +507,7 @@ export class VectorStore {
    * text from the doc chunk cache by `${filePath}#${name}`.
    */
   async listDocSectionVectors(
-    source: 'internal' | 'project',
+    source: DocSource,
   ): Promise<Array<{ filePath: string; name: string; nlpVector: number[] }>> {
     if (!this.table) return [];
     const rows = await this.table
@@ -646,7 +646,7 @@ export class VectorStore {
   async upsertDocSections(
     sections: Array<{ id: string; filePath: string; name: string; summary: string }>,
     nlpEmbeddings: number[][],
-    docSource: 'internal' | 'project' = 'project',
+    docSource: DocSource = 'project',
   ): Promise<void> {
     if (sections.length === 0) return;
     if (!this.db) throw new Error('VectorStore not initialized');
@@ -722,8 +722,8 @@ export class VectorStore {
    * @returns Number of aliased sections created
    */
   async aliasDocSource(
-    fromSource: 'internal' | 'project',
-    toSource: 'internal' | 'project',
+    fromSource: DocSource,
+    toSource: DocSource,
     fromDocsDir: string,
     toDocsDir: string,
   ): Promise<number> {
@@ -866,7 +866,7 @@ export class VectorStore {
   /**
    * List all doc_section rows in the index.
    */
-  async listDocSections(docSource?: 'internal' | 'project'): Promise<DocSectionEntry[]> {
+  async listDocSections(docSource?: DocSource): Promise<DocSectionEntry[]> {
     if (!this.table) return [];
     const rows = await this.table
       .query()
@@ -880,7 +880,7 @@ export class VectorStore {
         name: r.name as string,
         summary: r.summary as string,
         lastIndexed: r.lastIndexed as string,
-        source: (r.source === 'internal' ? 'internal' : 'project') as 'internal' | 'project',
+        source: (r.source === 'internal' || r.source === 'flow' ? r.source : 'project') as DocSource,
       }));
   }
 

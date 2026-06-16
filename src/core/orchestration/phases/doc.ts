@@ -418,6 +418,7 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
   const log = getLogger();
   const cacheSuffix = ctx.resolvedRagMode!; // 'lite' | 'advanced' | 'external'
   const internalDocsDir = join('.anatoly', 'state', 'internal-docs');
+  const internalFlowsDir = join('.anatoly', 'state', 'internal-flows');
   const docsDir = getDocsDir(ctx.config);
   const state = ctx.pipelineState;
   state?.startTask('rag-index-update', '…');
@@ -426,13 +427,15 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
   const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
   // Skip project docs when dedup mode — the alias in the vector store maps internal → project.
   const projChunked = ctx.docsIdentical ? 0 : smartChunkAndCache(ctx.projectRoot, docsDir, cacheSuffix);
+  // The generated user-flow page (doc 23), if any. No-op (0) until it exists.
+  const flowChunked = smartChunkAndCache(ctx.projectRoot, internalFlowsDir, `${cacheSuffix}-flow`);
 
-  if (intChunked + projChunked === 0) {
+  if (intChunked + projChunked + flowChunked === 0) {
     state?.completeTask('rag-index-update', 'no doc changes');
     return; // nothing changed
   }
 
-  ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal${projChunked > 0 ? ` + ${projChunked} project` : ''} doc files`);
+  ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal${projChunked > 0 ? ` + ${projChunked} project` : ''}${flowChunked > 0 ? ` + ${flowChunked} flow` : ''} doc files`);
 
   // Phase 2: restart embedding containers if advanced mode
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
@@ -464,6 +467,7 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
       vectorStore,
       docsDir,
       internalDocsDir,
+      internalFlowsDir,
       cacheSuffix,
       chunkModel: ctx.config.models.fast,
       referencePaths: ctx.config.documentation?.reference?.paths ?? [],
@@ -476,6 +480,7 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
     onLog(
       `doc re-index: ${result.docSectionsIndexed} sections `
       + `(internal ${result.internalDocSections}, project ${result.projectDocSections}`
+      + `${result.flowDocSections > 0 ? `, flow ${result.flowDocSections}` : ''}`
       + `${result.docsIdentical ? ', aliased' : ''}), $${result.costUsd.toFixed(4)}`,
     );
     taskSummary = result.docsIdentical
