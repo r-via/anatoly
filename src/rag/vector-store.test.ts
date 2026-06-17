@@ -305,6 +305,52 @@ describe('VectorStore — declaration cards', () => {
     expect(avg!.some((x) => x !== 0)).toBe(true);
   });
 
+  it('uses ONLY function-card vectors on a mixed file (declarations do not shift routing)', async () => {
+    // Regression guard: c56a3e4 folded declaration vectors into the per-file
+    // average on every file. On a MIXED file that shifted reference-doc routing
+    // (a const like SPIN_DONE = "spin:done" pulled a self-justifying guide into
+    // events.ts's overengineering review and masked a real over-abstraction).
+    // The function vector must drive routing; declarations are ignored here.
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    // Orthogonal NLP vectors so function-only vs function+declaration averages
+    // are distinguishable after L2-normalization.
+    const fnNlp = () => { const v = new Array(NLP_DIM).fill(0); v[0] = 1; return v; };
+    const declNlp = () => { const v = new Array(NLP_DIM).fill(0); v[1] = 1; return v; };
+
+    await store.upsert(
+      [fnCard('1111111111111111', 'src/events.ts', 'emit'), declCard('2222222222222222', 'src/events.ts', 'SPIN_DONE')],
+      [new Array(CODE_DIM).fill(0.1), new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [fnNlp(), declNlp()], docEmbeddings: [new Array(NLP_DIM).fill(0), new Array(NLP_DIM).fill(0)] },
+    );
+
+    const avg = await store.getAverageNlpVectorByFile('src/events.ts');
+    expect(avg).not.toBeNull();
+    // Function vector is [1,0,…]; the declaration [0,1,…] is excluded. Were it
+    // folded in, the average would normalize to [0.707,0.707,…].
+    expect(avg![0]).toBeCloseTo(1, 5);
+    expect(avg![1]).toBeCloseTo(0, 5);
+  });
+
+  it('falls back to declaration vectors when the file has no function card (data-only routing preserved)', async () => {
+    // The fallback that keeps c56a3e4's actual benefit: a constants/types module
+    // with no function still produces a query vector, driven by its declarations.
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    const declNlp = () => { const v = new Array(NLP_DIM).fill(0); v[1] = 1; return v; };
+    await store.upsert(
+      [declCard('3333333333333333', 'src/consts.ts', 'DWELL_TICKS')],
+      [new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [declNlp()], docEmbeddings: [new Array(NLP_DIM).fill(0)] },
+    );
+
+    const avg = await store.getAverageNlpVectorByFile('src/consts.ts');
+    expect(avg).not.toBeNull();
+    expect(avg![1]).toBeCloseTo(1, 5); // the declaration vector drives routing
+  });
+
   it('excludes declaration cards from code-similarity search (duplication path)', async () => {
     const store = new VectorStore(dir, undefined, () => {}, false);
     await store.init();

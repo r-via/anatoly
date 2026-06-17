@@ -794,24 +794,38 @@ export class VectorStore {
   }
 
   /**
-   * Get the average NLP vector across all non-doc cards in a file (function AND
-   * declaration cards). Including declarations is what lets data-only files (no
-   * functions, e.g. a constants/types module) produce a query vector for
-   * reference-doc routing. Returns null if no cards or no NLP vectors exist.
+   * Get the average NLP vector that drives per-file reference-doc routing.
+   *
+   * Function cards (function/method/hook) describe a file's behavior and are the
+   * routing signal. Declaration cards (const/variable/type/enum) are a FALLBACK,
+   * used only when a file has no function card — i.e. a data-only constants/types
+   * module — so it still produces a query vector (the reason declarations are
+   * indexed at all). On a MIXED file the function vector already exists; folding
+   * declarations into it shifts routing away from the file's behavior. That
+   * regressed the overengineering axis: a const like `SPIN_DONE = "spin:done"`
+   * pulled a self-justifying "Spin Events" guide into events.ts's review and
+   * masked a real over-abstraction (and routed a "no runtime setter" doc into
+   * reels.ts, producing a REEL_WEIGHTS false positive). So average function cards
+   * when present, and fall back to declaration cards only when there are none.
+   * Returns null if no cards or no NLP vectors exist.
    */
   async getAverageNlpVectorByFile(filePath: string): Promise<number[] | null> {
     if (!this.table) return null;
     const rows = await this.table
       .query()
       .where(`filePath = '${sanitizeFilePath(filePath)}' AND type != 'doc_section'`)
-      .select(['nlp_vector'])
+      .select(['nlp_vector', 'type'])
       .toArray();
 
     if (rows.length === 0) return null;
 
-    const vectors = rows
-      .map((r) => toNumberArray(r.nlp_vector))
-      .filter((v) => v.some((x) => x !== 0)); // skip zero vectors
+    const nonZero = (rs: typeof rows) =>
+      rs.map((r) => toNumberArray(r.nlp_vector)).filter((v) => v.some((x) => x !== 0));
+
+    // Prefer function-card vectors; fall back to declarations (incl. when the
+    // file's function cards have no embedding) so data-only files still route.
+    const functionVectors = nonZero(rows.filter((r) => r.type === 'function'));
+    const vectors = functionVectors.length > 0 ? functionVectors : nonZero(rows);
 
     if (vectors.length === 0) return null;
 
