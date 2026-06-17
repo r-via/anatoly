@@ -48,9 +48,10 @@ describe('buildCorrectionSystemPrompt', () => {
     expect(prompt).toContain('actions');
     expect(prompt).not.toContain('duplication');
     expect(prompt).not.toContain('utility');
-    // Headroom for the precision rules accreted from FP analysis (rules 14-16);
-    // still a focused single-axis prompt, not a sprawling one.
-    expect(prompt.split('\n').length).toBeLessThan(240);
+    // Headroom for the precision rules accreted from FP analysis (rules 14-16,
+    // plus rule 11's axis-attribution discipline routing certifiability/compliance
+    // concerns to best-practices); still a focused single-axis prompt, not sprawling.
+    expect(prompt.split('\n').length).toBeLessThan(250);
   });
 });
 

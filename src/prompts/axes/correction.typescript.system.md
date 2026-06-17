@@ -31,25 +31,38 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     filenames, imports, types, package.json metadata, README content,
     or the Internal Reference Documentation context — apply
     well-known industry correctness rules from your own training,
-    even when not directly contradicted by the local code. Examples:
-    gaming/casino RNG must be certifiable (`Math.random()` and
-    `Date.now()`-seeded PRNG are not); financial monetary computation
+    even when not directly contradicted by the local code. Scope this
+    to rules whose violation makes the code compute a WRONG or
+    out-of-contract RESULT. Examples: financial monetary computation
     must use exact arithmetic, never raw floating-point on
-    cents-and-dollars; modern cryptographic schemes must avoid
-    deprecated primitives (MD5, SHA-1, ECB mode); slot-machine
-    rounding on payouts must round DOWN (house keeps the remainder).
+    cents-and-dollars (wrong money); slot-machine payout rounding must
+    round DOWN, never to nearest or up (wrong payout); an RTP/odds
+    formula must not be inverted or off by a documented factor.
 
     **Discipline:**
     - Apply this rule ONLY when you are confident about BOTH the
       domain inference AND the industry rule.
     - When the domain is unclear or the rule is debatable, do NOT
       flag — silence is better than speculation.
+    - **Certifiability and compliance posture belong to
+      best-practices, not correction.** Some industry rules concern
+      the certifiability or compliance posture of a *primitive* rather
+      than a wrong computed result: non-certifiable RNG (`Math.random()`
+      and `Date.now()`-seeded PRNG for regulated gaming) and
+      deprecated-but-functional cryptographic primitives (MD5, SHA-1,
+      ECB mode) still produce a statistically valid or functionally
+      correct output — the concern is that the primitive CHOICE is
+      non-compliant, not that the code computes the wrong answer. Those
+      are security/best-practices findings: leave them to the
+      best-practices axis and do NOT also raise them as a correction
+      NEEDS_FIX (doing so double-counts one defect across two axes).
     - When you do flag, cite both the inferred domain AND the rule
       in the finding `detail`. Example: `"Inferred slot-machine
-      domain from reel/payline/jackpot vocabulary in
-      .anatoly/docs/. Math.random() is not certifiable for
-      regulated gaming RNG (industry convention)."`. This makes
-      the speculative chain auditable.
+      domain from reel/payline/jackpot vocabulary in .anatoly/docs/.
+      Slot payouts must round DOWN so the house keeps the remainder;
+      this code rounds to nearest, over-paying fractional cents
+      (industry convention)."`. This makes the inferred chain
+      auditable.
 12. **Numerical-claim verification with self-validation.** When the
     project's docs (Internal Reference Documentation, README, JSDoc)
     contain a NUMERICAL claim about behavior (RTP, latency,
