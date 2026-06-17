@@ -44,18 +44,55 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
       domain inference AND the industry rule.
     - When the domain is unclear or the rule is debatable, do NOT
       flag — silence is better than speculation.
-    - **Certifiability and compliance posture belong to
-      best-practices, not correction.** Some industry rules concern
-      the certifiability or compliance posture of a *primitive* rather
-      than a wrong computed result: non-certifiable RNG (`Math.random()`
-      and `Date.now()`-seeded PRNG for regulated gaming) and
-      deprecated-but-functional cryptographic primitives (MD5, SHA-1,
-      ECB mode) still produce a statistically valid or functionally
-      correct output — the concern is that the primitive CHOICE is
-      non-compliant, not that the code computes the wrong answer. Those
-      are security/best-practices findings: leave them to the
-      best-practices axis and do NOT also raise them as a correction
-      NEEDS_FIX (doing so double-counts one defect across two axes).
+    - **A concern about WHICH primitive or construct the code CHOOSES,
+      when the code still computes a functionally-correct RESULT,
+      belongs to best-practices, not correction.** This is the general
+      principle: correction owns a demonstrably WRONG computed result
+      or a concretely BROKEN control-flow path, never the mere choice
+      of primitive. When the only objection is that a different API,
+      primitive, or construct would be more compliant, safer, or more
+      modern, yet the current code still computes a valid result and
+      drives the same observable behavior, the concern is the CHOICE.
+      Route it to the best-practices axis and emit `OK` here; do NOT
+      also raise it as a correction NEEDS_FIX (that double-counts one
+      defect across two axes). Instances of this primitive-choice
+      family, all best-practices:
+      - non-certifiable RNG (`Math.random()` and `Date.now()`-seeded
+        PRNG for regulated gaming) and deprecated-but-functional
+        cryptographic primitives (MD5, SHA-1, ECB mode): they still
+        produce a statistically valid or functionally correct output,
+        so the concern is compliance posture, not a wrong answer.
+      - throwing a non-Error value (`throw "invalid bet"`, or rejecting
+        with a string, number, or object literal instead of an `Error`):
+        the throw still aborts the path as intended; preferring an
+        `Error` subclass is an error-handling best-practice.
+      - in-place mutation where immutability is merely preferred
+        (mutating an argument or shared structure and returning `void`):
+        a stylistic immutability concern when no caller observes a
+        wrong value through it.
+    - **Sharp carve-out: keep it on correction when the choice yields a
+      demonstrable wrong result or a broken control-flow path you can
+      see in the given context.** First check the LOGIC for a wrong
+      result independent of the primitive style. A WRONG computed
+      result is always correction (an inverted or off-by-factor RTP,
+      odds, or payout formula, wrong rounding direction, wrong money,
+      wrong-tier payout), governed by rule 12, no matter which
+      primitive computes it. A MISSING guard is also correction, not a
+      primitive-choice concern: a path that SHOULD throw or reject an
+      out-of-contract input but does not (it only warns, or proceeds)
+      is a real broken-control-flow bug. Likewise a primitive choice
+      stays on correction when a CONCRETE in-tree consumer mishandles
+      it: a non-Error throw is a correction bug when a real consumer
+      you can see (a `catch` branching on `instanceof Error`, code
+      reading `.message`, `.stack`, or a field the thrown value lacks,
+      an async rejection handler, or a finally-protected resource) is
+      thereby driven to a wrong outcome; an in-place mutation is a
+      correction bug when a real reader in the tree then observes the
+      aliased structure with a wrong value. Absent such a concrete,
+      visible mishandling path, the bare primitive choice is
+      best-practices, and per rules 15-16 a merely hypothetical "a
+      caller COULD" path (not grounded in a visible consumer or the
+      Callers section) is not enough.
     - When you do flag, cite both the inferred domain AND the rule
       in the finding `detail`. Example: `"Inferred slot-machine
       domain from reel/payline/jackpot vocabulary in .anatoly/docs/.

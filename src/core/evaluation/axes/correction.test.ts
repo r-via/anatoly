@@ -49,9 +49,10 @@ describe('buildCorrectionSystemPrompt', () => {
     expect(prompt).not.toContain('duplication');
     expect(prompt).not.toContain('utility');
     // Headroom for the precision rules accreted from FP analysis (rules 14-16,
-    // plus rule 11's axis-attribution discipline routing certifiability/compliance
-    // concerns to best-practices); still a focused single-axis prompt, not sprawling.
-    expect(prompt.split('\n').length).toBeLessThan(250);
+    // plus rule 11's generalized primitive/construct-CHOICE routing: certifiability,
+    // throw-non-Error, and in-place mutation all go to best-practices when the
+    // computed RESULT is still correct); still a focused single-axis prompt.
+    expect(prompt.split('\n').length).toBeLessThan(290);
   });
 });
 
@@ -660,6 +661,21 @@ describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => 
       expect(lower).toMatch(/does not relax rules 4, 11 and 12|never to in-file values/);
       // Lever A: rule 16 points at the imported-interfaces section as source of truth.
       expect(lower).toContain('imported symbols (interfaces)');
+    });
+
+    it(`${label} variant routes primitive/construct CHOICE to best-practices, with a wrong-RESULT carve-out (rule 11)`, () => {
+      const lower = prompt.toLowerCase();
+      // The generalized route-off: a CHOICE of primitive with a correct
+      // RESULT belongs to best-practices, not correction (closes the class
+      // RNG + throw-non-Error + in-place mutation, not just certifiability).
+      expect(lower).toMatch(/which primitive|primitive.*choose|primitive-choice family/);
+      // The throw-string instance (the catalogued spin:115 dual-axis leak).
+      expect(lower).toMatch(/throw "invalid bet"|non-error value/);
+      // The carve-out re-arms on a concrete in-tree consumer mishandling.
+      expect(lower).toContain('instanceof error');
+      // Recall fences: a MISSING guard and a WRONG computed result stay correction.
+      expect(lower).toMatch(/missing guard|should throw .* but does not/);
+      expect(lower).toMatch(/wrong computed result/);
     });
   }
 });
