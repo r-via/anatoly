@@ -375,7 +375,7 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
     const cache = loadRagCache(projectRoot, cacheSuffix);
     for (const file of indexedFiles) {
       if (isMatch(file)) {
-        await store.deleteByFile(file, 'function');
+        await store.deleteCodeByFile(file);
         purgedCount++;
       }
     }
@@ -427,12 +427,13 @@ export async function indexProject(options: RagIndexOptions): Promise<RagIndexRe
   // NLP warmup is deferred to the batch NLP phase to avoid a container swap here.
   await embedCode('function warmup() {}');
 
-  // Garbage-collect stale function card entries (not doc_sections) for files no longer in the project
+  // Garbage-collect stale code cards (function + declaration, not doc_sections)
+  // for files no longer in the project.
   const currentFiles = new Set(tasks.map((t) => t.file));
   const indexedFiles = await store.listIndexedFiles();
   for (const orphan of indexedFiles) {
     if (!currentFiles.has(orphan)) {
-      await store.deleteByFile(orphan, 'function');
+      await store.deleteCodeByFile(orphan);
       onLog(`gc: removed stale cards for ${orphan}`);
     }
   }

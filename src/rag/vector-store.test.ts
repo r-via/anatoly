@@ -416,4 +416,53 @@ describe('VectorStore — declaration cards', () => {
     expect(nlpResults[0].card.name).toBe('computePayout');
     expect(nlpResults.every((r) => r.card.kind === 'function')).toBe(true);
   });
+
+  it('deleteCodeByFile reclaims function AND declaration rows for a file, sparing untouched files', async () => {
+    // Orphan-GC / scoped-rebuild path. deleteByFile(_, 'function') left
+    // declaration rows orphaned; deleteCodeByFile removes every code row of the
+    // file (type != 'doc_section') so a removed data-only file is fully reclaimed.
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    await store.upsert(
+      [fnCard('1111111111111111', 'src/gone.ts', 'emit'), declCard('2222222222222222', 'src/gone.ts', 'LIMIT')],
+      [new Array(CODE_DIM).fill(0.1), new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [new Array(NLP_DIM).fill(0.2), new Array(NLP_DIM).fill(0.2)], docEmbeddings: [new Array(NLP_DIM).fill(0), new Array(NLP_DIM).fill(0)] },
+    );
+    await store.upsert(
+      [declCard('3333333333333333', 'src/kept.ts', 'DWELL_TICKS')],
+      [new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [new Array(NLP_DIM).fill(0.2)], docEmbeddings: [new Array(NLP_DIM).fill(0)] },
+    );
+
+    await store.deleteCodeByFile('src/gone.ts');
+
+    // Both the function and the declaration of the removed file are gone.
+    expect(await store.getCardsByFile('src/gone.ts')).toHaveLength(0);
+    // The untouched file's declaration is preserved.
+    expect(await store.getCardsByFile('src/kept.ts')).toHaveLength(1);
+  });
+
+  it('listIndexedFiles enumerates data-only (declaration-only) files so orphan-GC can visit them', async () => {
+    // The visit half of the leak: listIndexedFiles filtered type = 'function',
+    // so a removed data-only file was never enumerated by orphan-GC. It now
+    // returns every code-bearing file (type != 'doc_section').
+    const store = new VectorStore(dir, undefined, () => {}, false);
+    await store.init();
+
+    await store.upsert(
+      [fnCard('4444444444444444', 'src/code.ts', 'compute')],
+      [new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [new Array(NLP_DIM).fill(0.2)], docEmbeddings: [new Array(NLP_DIM).fill(0)] },
+    );
+    await store.upsert(
+      [declCard('5555555555555555', 'src/data.ts', 'WEIGHTS')],
+      [new Array(CODE_DIM).fill(0.1)],
+      { nlpEmbeddings: [new Array(NLP_DIM).fill(0.2)], docEmbeddings: [new Array(NLP_DIM).fill(0)] },
+    );
+
+    const files = await store.listIndexedFiles();
+    expect(files.has('src/code.ts')).toBe(true);
+    expect(files.has('src/data.ts')).toBe(true);
+  });
 });

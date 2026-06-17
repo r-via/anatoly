@@ -929,6 +929,26 @@ export class VectorStore {
   }
 
   /**
+   * Delete all *code* rows (function + declaration, not doc_section) for a file.
+   *
+   * Orphan-GC and the scoped `--rebuild` purge use this to reclaim every code
+   * row of a removed or rebuilt file. `deleteByFile(file, 'function')` left
+   * `declaration` rows (added by RAG declaration indexing) permanently orphaned,
+   * since the type discriminator only scoped function rows. Doc rows are keyed
+   * by doc-source paths with their own lifecycle, so they are preserved here.
+   */
+  async deleteCodeByFile(filePath: string): Promise<void> {
+    if (!this.table) return;
+    try {
+      await this.table.delete(
+        `filePath = '${sanitizeFilePath(filePath)}' AND type != 'doc_section'`,
+      );
+    } catch {
+      // File might not have any cards — that's fine
+    }
+  }
+
+  /**
    * Drop and recreate the table (for --rebuild-rag).
    */
   async rebuild(): Promise<void> {
@@ -944,14 +964,17 @@ export class VectorStore {
   }
 
   /**
-   * Return the set of distinct file paths that have function (code) entries.
-   * Excludes doc_section rows so orphan-GC operates only on code files.
+   * Return the set of distinct file paths that have code (function or
+   * declaration) entries. Excludes doc_section rows so orphan-GC operates only
+   * on code files — but includes data-only files whose sole rows are
+   * declarations, which a `type = 'function'` filter would hide so their rows
+   * could never be visited (and never reclaimed) once the file is removed.
    */
   async listIndexedFiles(): Promise<Set<string>> {
     if (!this.table) return new Set();
     const rows = await this.table
       .query()
-      .where("type = 'function'")
+      .where("type != 'doc_section'")
       .select(['filePath'])
       .toArray();
     return new Set(rows.map((r) => r.filePath as string));

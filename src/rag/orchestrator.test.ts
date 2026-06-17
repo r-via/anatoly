@@ -48,6 +48,7 @@ vi.mock('./vector-store.js', () => {
     upsert = vi.fn().mockResolvedValue(undefined);
     listIndexedFiles = vi.fn().mockResolvedValue(new Set<string>());
     deleteByFile = vi.fn().mockResolvedValue(undefined);
+    deleteCodeByFile = vi.fn().mockResolvedValue(undefined);
     aliasDocSource = vi.fn().mockResolvedValue(0);
     stats = vi.fn().mockResolvedValue({ totalCards: 0, totalFiles: 0, lastIndexed: null });
   }
