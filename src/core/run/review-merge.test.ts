@@ -86,6 +86,31 @@ describe('mergeRefreshedReview', () => {
     expect(s.confidence).toBe(70);
   });
 
+  it('merges the flow verdict when flow is refreshed (regression: flow was dropped)', () => {
+    // A prior cache holds flow='-' (e.g. evaluated before the flows artifact
+    // existed). A `--axes flow` re-run produces a fresh NEEDS_FIX. The merge
+    // must carry the fresh flow verdict, not keep the cached '-'.
+    const cached = review({
+      symbols: [sym({ name: 'AppRoutes', line_start: 10, flow: '-' })],
+    });
+    const fresh = review({
+      symbols: [sym({ name: 'AppRoutes', line_start: 10, flow: 'NEEDS_FIX' })],
+    });
+    const merged = mergeRefreshedReview(cached, fresh, ['flow']);
+    expect(merged.symbols[0].flow).toBe('NEEDS_FIX');
+  });
+
+  it('keeps the cached flow verdict when flow is NOT refreshed', () => {
+    const cached = review({
+      symbols: [sym({ name: 'AppRoutes', line_start: 10, flow: 'NEEDS_FIX' })],
+    });
+    const fresh = review({
+      symbols: [sym({ name: 'AppRoutes', line_start: 10, flow: '-' })],
+    });
+    const merged = mergeRefreshedReview(cached, fresh, ['utility']);
+    expect(merged.symbols[0].flow).toBe('NEEDS_FIX');
+  });
+
   it('refreshes only the requested axes (multi-axis subset)', () => {
     const cached = review({
       symbols: [sym({

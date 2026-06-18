@@ -183,6 +183,11 @@ function mergeSymbol(
   }
   if (refreshed.has('tests')) merged.tests = fresh.tests;
   if (refreshed.has('documentation')) merged.documentation = fresh.documentation;
+  // The flow axis carries a per-symbol verdict identical in shape to
+  // correction. It was historically omitted here, so a partial run that
+  // re-evaluated flow (e.g. `--axes flow`) had its fresh verdict dropped and
+  // the cached '-' kept, silently zeroing every flow finding on a cached run.
+  if (refreshed.has('flow')) merged.flow = fresh.flow;
 
   // Detail: rebuild pipe-delimited segments. For each refreshed axis,
   // replace the cached segment with the fresh one; for non-refreshed
@@ -275,7 +280,7 @@ function mergeAxisMeta(
 
 const VALID_AXIS_IDS: ReadonlySet<string> = new Set([
   'utility', 'duplication', 'correction', 'overengineering',
-  'tests', 'best_practices', 'documentation',
+  'tests', 'best_practices', 'documentation', 'flow',
 ]);
 
 function isAxisId(s: string): s is AxisId {

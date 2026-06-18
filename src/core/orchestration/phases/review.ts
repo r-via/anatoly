@@ -46,6 +46,7 @@ import { evaluateFile } from '../../evaluation/index.js';
 import { runWorkerPool } from '../../platform/index.js';
 import { countReviewFindings } from '../../../utils/format.js';
 import { computeContentHash } from '../../../utils/cache.js';
+import { flowArtifactPath } from '../../flows/index.js';
 import { warnDisabledAxes } from '../../../utils/axes-filter.js';
 import { resolveAxisModel, type AxisId } from '../../evaluation/index.js';
 import { getEffectiveSourceRoot } from '../../worktree/index.js';
@@ -223,6 +224,20 @@ export async function runReviewPhase(
     const model = resolveAxisModel(e, ctx.config);
     axisModelIds[e.id] = model;
     axisPromptHashes[e.id] = computeAxisPromptHash(e.id, model);
+  }
+  // The flow axis is deterministic on the flows.json artifact, not on the file
+  // source or an LLM prompt. computeAxisPromptHash captures neither, so fold the
+  // artifact's content hash into flow's freshness key: a flow verdict computed
+  // against a different (or absent) artifact is then invalidated when flows.json
+  // changes. Without this, a verdict cached before the flows phase first ran
+  // (empty result, no artifact) is served stale after the artifact appears,
+  // which silently zeroes every flow finding on a cached run.
+  if (axisPromptHashes.flow) {
+    let flowsArtifactHash = 'absent';
+    try {
+      flowsArtifactHash = computeContentHash(readFileSync(flowArtifactPath(ctx.projectRoot), 'utf-8'));
+    } catch { /* artifact absent (flows phase disabled / not yet run) → 'absent' */ }
+    axisPromptHashes.flow = `${axisPromptHashes.flow}:flows=${flowsArtifactHash}`;
   }
   const axisMetaFor = (axes: readonly string[]): Record<string, { prompt_hash: string; model_id: string }> => {
     const out: Record<string, { prompt_hash: string; model_id: string }> = {};
