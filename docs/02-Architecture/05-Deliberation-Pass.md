@@ -2,6 +2,43 @@
 
 The refinement pipeline is a post-review validation phase that eliminates false positives, resolves inter-axis contradictions, and investigates ambiguous findings. It replaces the legacy per-file Opus deliberation with a three-tier approach: deterministic auto-resolve, coherence rules, and agentic investigation.
 
+## The Deliberation Engagement
+
+Anatoly's engagement is that **every finding-producing axis is eligible for deliberation**: no axis is structurally barred from the refinement pipeline. This is the eligibility guarantee, not a per-finding cost promise. Concretely:
+
+1. Every axis flows through tiers 1 and 2. A finding is never reported without passing the deterministic false-positive and inter-axis coherence checks.
+2. Every axis is escalatable to tier 3 (Opus). The tier-2 escalation criteria (isolation, confidence band, behavioral signal, systemic pattern) decide which findings actually consume an Opus call. A high-confidence finding that survives tiers 1 and 2 is considered confirmed by deterministic proof and does not need an Opus call to honor the engagement.
+3. No axis is excluded from the deliberable set by construction. The guarantee is "eligible for arbitration plus proven", which matches the README ("arbitration on disputed findings" plus "every finding is proven with a file, a line, and the evidence trail").
+
+This is engagement reading A, chosen over "every finding gets an Opus call" (too costly, breaks the $0/token subscription value) and over "deterministic axes need no deliberation at all" (leaves flow and best_practices as second-class axes).
+
+### Per-axis eligibility
+
+Two deliberation mechanisms exist because findings have two shapes:
+
+| Axis | Finding shape | Deliberation path |
+|------|---------------|-------------------|
+| correction, utility, duplication, overengineering, tests, documentation | per-symbol verdict (`SymbolReview.<axis>`) | verdict path: tier-2 escalation + tier-3 reclassify over `DELIBERATION_AXES` |
+| flow | per-symbol verdict (`SymbolReview.flow`) | verdict path (same as above): flow joins `DELIBERATION_AXES` |
+| best_practices | file-level (`ReviewFile.best_practices`), no per-symbol verdict | file-level path (a distinct escalate-and-reclassify channel for file-level findings) |
+| invariants (pipeline phase, not an axis) | `SymbolReview.invariant_findings` | satisfied in-phase by its own adversarial judge (same-quantity-and-disagreement, default-to-no-finding); documented as an equivalent deliberation mechanism, not the tier-3 path |
+
+The flow axis already carries a per-symbol verdict identical in shape to correction, so it reaches the engagement through the existing verdict path simply by joining `DELIBERATION_AXES` and the tier-2 escalation rules. The best_practices axis is file-level and needs a dedicated file-level channel; until that channel ships it is the one known gap against the engagement.
+
+### Determinism and caching
+
+The flow axis is LLM-free: it derives its verdict from the `flows.json` artifact. Its per-axis review cache key must therefore include the artifact's content hash (or the axis must not be cached), otherwise a verdict computed before the artifact existed is served stale after it appears. Eligibility for deliberation does not change this: the producer is re-evaluated deterministically, then its findings flow through the pipeline like any other axis.
+
+### Implementation status
+
+This section is the design contract. Status of the increments:
+
+1. **Pending (increment 1).** `DELIBERATION_AXES` lists six axes; `flow` is not yet among them and tier-2 does not yet escalate flow findings. Increment 1 adds flow to the verdict path: it joins `DELIBERATION_AXES`, gets a field on the deliberation `AxisVerdictSchema`, a tier-3 prompt section, and a tier-2 escalation rule scoped to FP-prone natures (`unwired_flow`) and low resolution confidence, so high-confidence structural facts (e.g. `over_indirect`) stay deterministically confirmed.
+2. **Done.** The flow per-axis review cache key now folds in the `flows.json` content hash (review.ts), so a verdict computed against a different or absent artifact is invalidated. A second, deeper defect is also fixed: `mergeRefreshedReview` (review-merge.ts) historically omitted the `flow` field, so a partial cache-served run that re-evaluated flow had its fresh verdict dropped and the cached `'-'` kept, silently zeroing flow findings (observed on theraphonia: `--axes flow` reported 0 findings under cache, 47 under `--no-cache`). The merge now carries flow.
+3. **Pending (increment 2).** best_practices has no file-level deliberation channel. Until it ships, best_practices is reported without arbitration, the one acknowledged gap.
+
+Note: the flow axis verdicts (`OK`/`NEEDS_FIX`) reuse the same tags as correction in the pipe-delimited `detail` format, which assumes globally distinct verdict tags. The flow detail segment is therefore not yet merged in `rebuildDetail` (only the verdict field is); resolving the tag collision is folded into increment 1.
+
 ## When It Runs
 
 Refinement is controlled by two settings:
