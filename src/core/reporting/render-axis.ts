@@ -250,6 +250,12 @@ function axisAllValues(axis: ReportAxisId): string[] {
  * matches the axis verdict for this symbol and strip the tag prefix.
  */
 export function axisDetail(s: SymbolReview, axis: ReportAxisId): string {
+  // Flow reuses correction's verdict tags, so its segment in the pipe-delimited
+  // `detail` is ambiguous (and absent on a cached `--axes flow` merge). Read its
+  // dedicated, collision-free field instead.
+  if (axis === 'flow') {
+    return s.flow_detail ?? (s.flow === '-' ? '(axis not evaluated this run)' : 'Flow finding (no detail recorded).');
+  }
   const value = axisSymbolValue(s, axis);
   const segments = s.detail.split(' | ');
   const tag = `[${value}] `;

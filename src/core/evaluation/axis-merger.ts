@@ -248,6 +248,10 @@ function mergeSymbol(sym: SymbolInfo, axisMap: AxisMap, failedAxes: Set<AxisId>,
     tests: resolveAxis('tests', tests, ['GOOD', 'WEAK', 'NONE'] as const, 'NONE'),
     documentation: resolveAxis('documentation', documentation, ['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED'] as const, 'DOCUMENTED'),
     flow: resolveAxis('flow', flow, ['OK', 'NEEDS_FIX', '-'] as const, '-'),
+    // Carry the flow rationale in its own field: flow shares correction's
+    // verdict tags, so the merged `detail` segment is ambiguous and the cached
+    // merge drops it. Only set when flow actually ran and produced a result.
+    flow_detail: !isSkipped('flow') ? flow?.detail : undefined,
     confidence,
     detail: details.length > 0 ? details.join(' | ') : 'No axis evaluators produced results for this symbol.',
     duplicate_target: duplication?.duplicate_target,

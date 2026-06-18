@@ -34,6 +34,7 @@ function renderAxisSummary(data: ReportData): string[] {
     overengineering: { LEAN: 0, ACCEPTABLE: 0, OVER: 0 },
     tests: { GOOD: 0, WEAK: 0, NONE: 0 },
     documentation: { DOCUMENTED: 0, PARTIAL: 0, UNDOCUMENTED: 0 },
+    flow: { OK: 0, NEEDS_FIX: 0 },
   };
   for (const s of reliable) {
     if (s.utility in counts.utility) counts.utility[s.utility as keyof typeof counts.utility]++;
@@ -42,6 +43,7 @@ function renderAxisSummary(data: ReportData): string[] {
     if (s.overengineering in counts.overengineering) counts.overengineering[s.overengineering as keyof typeof counts.overengineering]++;
     if (s.tests in counts.tests) counts.tests[s.tests as keyof typeof counts.tests]++;
     if (s.documentation in counts.documentation) counts.documentation[s.documentation as keyof typeof counts.documentation]++;
+    if (s.flow in counts.flow) counts.flow[s.flow as keyof typeof counts.flow]++;
   }
 
   const lines: string[] = [];
@@ -90,6 +92,10 @@ function renderAxisSummary(data: ReportData): string[] {
     { label: 'DOCUMENTED', count: counts.documentation.DOCUMENTED },
     { label: 'PARTIAL', count: counts.documentation.PARTIAL },
     { label: 'UNDOCUMENTED', count: counts.documentation.UNDOCUMENTED },
+  ]);
+  renderAxis('Flow', [
+    { label: 'OK', count: counts.flow.OK },
+    { label: 'NEEDS_FIX', count: counts.flow.NEEDS_FIX },
   ]);
 
   // Best Practices (file-level, separate logic)
@@ -216,6 +222,7 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   const tst = data.counts.tests;
   const doc = data.counts.documentation;
   const bp = data.counts.best_practices;
+  const fl = data.counts.flow;
   const totalDead = dc.high + dc.medium + dc.low;
   const totalDup = dup.high + dup.medium + dup.low;
   const totalOver = ov.high + ov.medium + ov.low;
@@ -223,14 +230,16 @@ export function renderIndex(data: ReportData, axisReports: AxisReport[], triageS
   const totalTests = tst.high + tst.medium + tst.low;
   const totalDocs = doc.high + doc.medium + doc.low;
   const totalBp = bp.high + bp.medium + bp.low;
+  const totalFlow = fl.high + fl.medium + fl.low;
 
-  if (totalDead + totalDup + totalOver + totalCorr + totalTests + totalDocs + totalBp > 0) {
+  if (totalDead + totalDup + totalOver + totalCorr + totalTests + totalDocs + totalBp + totalFlow > 0) {
     lines.push('| Category | High | Medium | Low | Total |');
     lines.push('|----------|------|--------|-----|-------|');
     if (totalCorr > 0) lines.push(`| Correction errors | ${cor.high} | ${cor.medium} | ${cor.low} | ${totalCorr} |`);
     if (totalDead > 0) lines.push(`| Utility | ${dc.high} | ${dc.medium} | ${dc.low} | ${totalDead} |`);
     if (totalDup > 0) lines.push(`| Duplicates | ${dup.high} | ${dup.medium} | ${dup.low} | ${totalDup} |`);
     if (totalOver > 0) lines.push(`| Over-engineering | ${ov.high} | ${ov.medium} | ${ov.low} | ${totalOver} |`);
+    if (totalFlow > 0) lines.push(`| Flow | ${fl.high} | ${fl.medium} | ${fl.low} | ${totalFlow} |`);
     if (totalTests > 0) lines.push(`| Test coverage gaps | ${tst.high} | ${tst.medium} | ${tst.low} | ${totalTests} |`);
     if (totalBp > 0) lines.push(`| Best practices | ${bp.high} | ${bp.medium} | ${bp.low} | ${totalBp} |`);
     if (totalDocs > 0) lines.push(`| Documentation gaps | ${doc.high} | ${doc.medium} | ${doc.low} | ${totalDocs} |`);

@@ -115,7 +115,8 @@ function hasActionableIssue(s: SymbolReview): boolean {
     s.tests === 'WEAK' ||
     s.tests === 'NONE' ||
     (s.documentation === 'UNDOCUMENTED' && s.exported) ||
-    s.documentation === 'PARTIAL'
+    s.documentation === 'PARTIAL' ||
+    s.flow === 'NEEDS_FIX'
   );
 }
 
@@ -164,7 +165,7 @@ export function restrictReviewsToEvaluatedAxes(
   evaluatedAxes: ReadonlySet<string>,
 ): void {
   // Full coverage → nothing to strip; keep unfiltered runs byte-for-byte stable.
-  if (SYMBOL_AXIS_FIELDS.every((a) => evaluatedAxes.has(a)) && evaluatedAxes.has('best-practices')) {
+  if (SYMBOL_AXIS_FIELDS.every((a) => evaluatedAxes.has(a)) && evaluatedAxes.has('best-practices') && evaluatedAxes.has('flow')) {
     return;
   }
   for (const review of reviews) {
@@ -175,6 +176,9 @@ export function restrictReviewsToEvaluatedAxes(
       if (!evaluatedAxes.has('overengineering')) s.overengineering = '-';
       if (!evaluatedAxes.has('tests')) s.tests = '-';
       if (!evaluatedAxes.has('documentation')) s.documentation = '-';
+      // flow carries its verdict in `flow` and its rationale in `flow_detail`
+      // (not a positional `detail` segment), so neutralize both directly.
+      if (!evaluatedAxes.has('flow')) { s.flow = '-'; s.flow_detail = undefined; }
 
       // Neutralize the matching detail segments. The detail is a positional
       // `[VALUE] text | …` join in SYMBOL_AXIS_FIELDS order. Only when all six
@@ -254,6 +258,7 @@ function symbolSeverity(s: SymbolReview): 'high' | 'medium' | 'low' {
   if (s.utility === 'DEAD') return 'medium';
   if (s.duplication === 'DUPLICATE') return 'medium';
   if (s.overengineering === 'OVER') return 'medium';
+  if (s.flow === 'NEEDS_FIX') return 'medium';
   if (s.utility === 'LOW_VALUE') return 'low';
   return 'low';
 }

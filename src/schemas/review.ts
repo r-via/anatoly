@@ -27,7 +27,7 @@ export const DuplicateTargetSchema = z.object({
  * axes may opt in later.
  */
 export const SymbolFindingSchema = z.object({
-  axis: z.enum(['correction', 'overengineering', 'utility', 'duplication', 'tests', 'documentation', 'best_practices']).default('correction'),
+  axis: z.enum(['correction', 'overengineering', 'utility', 'duplication', 'tests', 'documentation', 'best_practices', 'flow']).default('correction'),
   line_start: z.int().min(1),
   line_end: z.int().min(1),
   detail: z.string().min(10),
@@ -79,6 +79,13 @@ export const SymbolReviewSchema = z.object({
   tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']),
   documentation: z.enum(['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED', '-']).default('-'),
   flow: z.enum(['OK', 'NEEDS_FIX', '-']).default('-'),
+  // Standalone detail text for the flow verdict. The flow axis reuses
+  // correction's `OK`/`NEEDS_FIX` tags, so its segment in the pipe-delimited
+  // `detail` string is positionally ambiguous (and is dropped by the cached
+  // `rebuildDetail` merge). This dedicated field carries the flow rationale
+  // (`<nature>: <detail>`) collision-free for the reporter. Absent ⇒ no flow
+  // finding text (verdict still in `flow`).
+  flow_detail: z.string().optional(),
 
   confidence: z.int().min(0).max(100),
 

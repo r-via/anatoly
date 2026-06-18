@@ -99,6 +99,13 @@ describe('computeFileVerdict', () => {
     });
     expect(computeFileVerdict(review)).toBe('CRITICAL');
   });
+
+  it('should return NEEDS_REFACTOR for a flow NEEDS_FIX symbol (flow is actionable)', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ flow: 'NEEDS_FIX', confidence: 85, flow_detail: 'unwired_flow: entry reaches no effect' })],
+    });
+    expect(computeFileVerdict(review)).toBe('NEEDS_REFACTOR');
+  });
 });
 
 describe('computeGlobalVerdict', () => {
@@ -143,6 +150,21 @@ describe('aggregateReviews', () => {
     const data = aggregateReviews(reviews);
     expect(data.counts.dead.high).toBe(1);
     expect(data.counts.dead.medium).toBe(1);
+  });
+
+  it('should count flow NEEDS_FIX findings (medium severity)', () => {
+    const reviews = [
+      makeReview({
+        verdict: 'NEEDS_REFACTOR',
+        symbols: [
+          makeSymbol({ flow: 'NEEDS_FIX', confidence: 90, flow_detail: 'over_indirect: routes through 2 hops' }),
+          makeSymbol({ name: 'clean', flow: 'OK', confidence: 90 }),
+        ],
+      }),
+    ];
+    const data = aggregateReviews(reviews);
+    expect(data.counts.flow.medium).toBe(1);
+    expect(data.counts.flow.high + data.counts.flow.low).toBe(0);
   });
 
   it('should collect actions with file reference', () => {

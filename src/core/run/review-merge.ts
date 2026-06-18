@@ -187,7 +187,13 @@ function mergeSymbol(
   // correction. It was historically omitted here, so a partial run that
   // re-evaluated flow (e.g. `--axes flow`) had its fresh verdict dropped and
   // the cached '-' kept, silently zeroing every flow finding on a cached run.
-  if (refreshed.has('flow')) merged.flow = fresh.flow;
+  // Carry both the verdict and its standalone detail. `rebuildDetail` below
+  // cannot reconstruct the flow segment (its tags collide with correction), so
+  // `flow_detail` is the only collision-free channel for the flow rationale.
+  if (refreshed.has('flow')) {
+    merged.flow = fresh.flow;
+    merged.flow_detail = fresh.flow_detail;
+  }
 
   // Detail: rebuild pipe-delimited segments. For each refreshed axis,
   // replace the cached segment with the fresh one; for non-refreshed
