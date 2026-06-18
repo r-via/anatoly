@@ -347,19 +347,26 @@ export function applyDeliberation(
   // channel). best_practices is not a per-symbol axis: deliberation entries
   // keyed by rule name carry a best_practices verdict that maps back onto the
   // file's rules rather than a SymbolReview field. PASS clears the violation.
+  // Match by slug containment, not strict equality: the same rule name fails in
+  // many files within one tier-3 shard, so Opus disambiguates by echoing a
+  // file-prefixed composite (e.g. `src/x.ts::best_practices::<rule_slug>`)
+  // rather than the bare rule name. applyDeliberation runs per file (tier 3
+  // filters to one file's findings), so a rule-name slug is unambiguous here.
   let bestPractices = review.best_practices;
   if (bestPractices) {
-    const ruleVerdicts = new Map<string, string>();
+    const slug = (x: string): string => x.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+    const bpDeliberated: Array<{ slug: string; verdict: string }> = [];
     for (const d of deliberation.symbols) {
       const v = d.deliberated.best_practices;
-      if (v && v !== '-') ruleVerdicts.set(d.name, v);
+      if (v && v !== '-') bpDeliberated.push({ slug: slug(d.name), verdict: v });
     }
-    if (ruleVerdicts.size > 0) {
+    if (bpDeliberated.length > 0) {
       bestPractices = {
         ...bestPractices,
         rules: bestPractices.rules.map((r) => {
-          const v = ruleVerdicts.get(r.rule_name);
-          return v && v !== r.status ? { ...r, status: v as typeof r.status } : r;
+          const rSlug = slug(r.rule_name);
+          const hit = bpDeliberated.find((d) => d.slug === rSlug || d.slug.includes(rSlug));
+          return hit && hit.verdict !== r.status ? { ...r, status: hit.verdict as typeof r.status } : r;
         }),
       };
     }

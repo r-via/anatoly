@@ -96,6 +96,27 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
   const newSymbols = review.symbols.map((sym) => {
     const s = { ...sym };
 
+    // --- Escalation: flow axis (deterministic graph facts) ---
+    // Hoisted above every coherence rule because a flow finding is independent
+    // of the per-symbol axes: the DEAD coherence block below returns early, and
+    // the six dead orphans are exactly the dual-anchored unwired_flow cases, so
+    // escalating flow after that return would never fire for them. Per the
+    // deliberation engagement (doc 05), escalation is selective: only the
+    // FP-prone natures (`unwired_flow`, which leans on usage-graph completeness)
+    // and low-confidence resolutions warrant an Opus check; high-confidence
+    // structural facts (over_indirect, redundant_flow, ...) are confirmed by the
+    // deterministic proof itself.
+    if (s.flow === 'NEEDS_FIX' && shouldEscalateFlow(s)) {
+      escalated.push({
+        file: review.file,
+        symbolName: s.name,
+        axis: 'flow',
+        value: 'NEEDS_FIX',
+        reason: flowEscalationReason(s),
+      });
+      stats.escalated++;
+    }
+
     // --- Rule: ERROR → always escalate (never auto-resolve) ---
     if (s.correction === 'ERROR') {
       escalated.push({
@@ -183,25 +204,6 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
         axis: 'correction',
         value: 'NEEDS_FIX',
         reason: `Isolated ${band}-confidence finding (confidence: ${s.confidence})`,
-      });
-      stats.escalated++;
-    }
-
-    // --- Escalation: flow axis (deterministic graph facts) ---
-    // Per the deliberation engagement (doc 05), flow is eligible for tier 3
-    // but escalation is selective: only the FP-prone natures (`unwired_flow`
-    // leans on usage-graph completeness, where a missed dynamic caller yields a
-    // false positive) and low-confidence resolutions warrant an Opus check.
-    // High-confidence structural facts (over_indirect, redundant_flow, ...) are
-    // confirmed by the deterministic proof itself, so escalating them would
-    // burn a tier-3 call with nothing to overturn.
-    if (s.flow === 'NEEDS_FIX' && shouldEscalateFlow(s)) {
-      escalated.push({
-        file: review.file,
-        symbolName: s.name,
-        axis: 'flow',
-        value: 'NEEDS_FIX',
-        reason: flowEscalationReason(s),
       });
       stats.escalated++;
     }

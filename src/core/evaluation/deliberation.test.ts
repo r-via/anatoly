@@ -383,8 +383,8 @@ describe('applyDeliberation', () => {
       best_practices: {
         score: 6,
         rules: [
-          { rule_id: 1, rule_name: 'no-console', status: 'FAIL', severity: 'medium', detail: 'console.log left in', lines: '12' },
-          { rule_id: 2, rule_name: 'no-any', status: 'PASS', severity: 'low' },
+          { rule_id: 1, rule_name: 'no-console', status: 'FAIL', severity: 'MEDIUM', detail: 'console.log left in', lines: '12' },
+          { rule_id: 2, rule_name: 'no-any', status: 'PASS', severity: 'MEDIUM' },
         ],
         suggestions: [],
       },
@@ -394,7 +394,10 @@ describe('applyDeliberation', () => {
       verdict: 'CLEAN',
       symbols: [
         {
-          name: 'no-console',
+          // Opus disambiguates same-named rules across files in a shard by
+          // echoing a file-prefixed composite, not the bare rule name; the sink
+          // must still map it back to the rule (slug containment).
+          name: 'src/a.ts::best_practices::no_console',
           original: { best_practices: 'FAIL', confidence: 80 },
           deliberated: { best_practices: 'PASS', confidence: 95 },
           reasoning: 'The console.log is inside a guarded debug-only branch (src/a.ts:12)',

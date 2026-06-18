@@ -443,6 +443,14 @@ describe('applyTier2 — flow axis escalation', () => {
     expect(result.escalated.filter(flowEsc)).toHaveLength(1);
   });
 
+  it('escalates flow even on a DEAD symbol (dual-anchored dead orphan, past the DEAD early-return)', async () => {
+    const review = makeReview({
+      symbols: [{ name: 'buildDigest', utility: 'DEAD', flow: 'NEEDS_FIX', confidence: 95, detail: '[DEAD] imported by 0 files | [NEEDS_FIX] unwired_flow: entry reaches no effect' }],
+    });
+    const result = await applyTier2(review);
+    expect(result.escalated.filter(flowEsc).map((e) => e.symbolName)).toEqual(['buildDigest']);
+  });
+
   it('does not escalate a healthy (OK) flow', async () => {
     const review = makeReview({
       symbols: [{ name: 'AppRoutes', flow: 'OK', confidence: 100, detail: "[OK] Flow 'AppRoutes' is wired to a terminal effect" }],
