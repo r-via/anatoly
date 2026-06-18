@@ -22,6 +22,12 @@ export interface EscalatedFinding {
   value: string;
   /** Reason for escalation to tier 3. */
   reason: string;
+  /**
+   * Self-contained detail for findings that have no per-symbol review entry to
+   * look up (e.g. file-level best_practices rules, keyed by rule name rather
+   * than a real symbol). When set, tier 3 uses it directly in the prompt.
+   */
+  detail?: string;
 }
 
 export interface Tier2Stats {
@@ -211,6 +217,28 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
 
     return s;
   });
+
+  // --- File-level escalation: best_practices rules ---
+  // best_practices is LLM-produced and has no per-symbol verdict; it lives on
+  // review.best_practices as a list of rules. Per the deliberation engagement
+  // (doc 05), it is eligible for arbitration via the file-level channel: each
+  // FAILED rule is escalated keyed by its rule name (WARN is advisory and left
+  // as-is to bound cost). Tier 3 verifies the rule against the source and may
+  // reclassify it; applyDeliberation writes the result back onto the rules.
+  if (review.best_practices) {
+    for (const rule of review.best_practices.rules) {
+      if (rule.status !== 'FAIL') continue;
+      escalated.push({
+        file: review.file,
+        symbolName: rule.rule_name,
+        axis: 'best_practices',
+        value: 'FAIL',
+        reason: `Best-practice rule failed${rule.lines ? ` (lines ${rule.lines})` : ''} — verify against the source`,
+        detail: rule.detail ?? rule.rule_name,
+      });
+      stats.escalated++;
+    }
+  }
 
   const newVerdict = computeVerdict(newSymbols);
 

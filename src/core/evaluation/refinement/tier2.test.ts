@@ -451,3 +451,33 @@ describe('applyTier2 — flow axis escalation', () => {
     expect(result.escalated.filter(flowEsc)).toHaveLength(0);
   });
 });
+
+describe('applyTier2 — best_practices file-level escalation', () => {
+  const bpEsc = (e: { axis: string }) => e.axis === 'best_practices';
+
+  it('escalates FAILED rules (keyed by rule name, with self-contained detail) and not PASS/WARN', async () => {
+    const review = makeReview({
+      best_practices: {
+        score: 6,
+        rules: [
+          { rule_id: 1, rule_name: 'no-console', status: 'FAIL', severity: 'medium', detail: 'console.log left in src/a.ts:12', lines: '12' },
+          { rule_id: 2, rule_name: 'prefer-const', status: 'WARN', severity: 'low', detail: 'let never reassigned' },
+          { rule_id: 3, rule_name: 'no-any', status: 'PASS', severity: 'low' },
+        ],
+        suggestions: [],
+      },
+    });
+    const result = await applyTier2(review);
+    const bp = result.escalated.filter(bpEsc);
+    expect(bp).toHaveLength(1);
+    expect(bp[0].symbolName).toBe('no-console');
+    expect(bp[0].value).toBe('FAIL');
+    expect(bp[0].detail).toContain('console.log');
+  });
+
+  it('escalates nothing when best_practices was not evaluated', async () => {
+    const review = makeReview({});
+    const result = await applyTier2(review);
+    expect(result.escalated.filter(bpEsc)).toHaveLength(0);
+  });
+});

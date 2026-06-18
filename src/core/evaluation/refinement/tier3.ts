@@ -627,7 +627,10 @@ Each finding below is a claim from the automated review that needs empirical ver
       const review = reviewsByFile.get(filePath);
       const sym = review?.symbols.find(s => s.name === f.symbolName);
       const confidence = sym?.confidence ?? '?';
-      const detail = sym?.detail ? ` | Detail: "${sym.detail.slice(0, 150)}"` : '';
+      // Prefer the finding's self-contained detail (file-level findings such as
+      // best_practices rules have no per-symbol entry to look up).
+      const detailText = f.detail ?? sym?.detail;
+      const detail = detailText ? ` | Detail: "${detailText.slice(0, 150)}"` : '';
       parts.push(`- **${f.symbolName}**: \`${f.axis}\` = \`${f.value}\` (confidence: ${confidence})${detail}`);
       parts.push(`  Escalation reason: ${f.reason}`);
     }

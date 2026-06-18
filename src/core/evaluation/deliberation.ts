@@ -21,6 +21,11 @@ const AxisVerdictSchema = z.object({
   tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']).optional(),
   documentation: z.enum(['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED', '-']).optional(),
   flow: z.enum(['OK', 'NEEDS_FIX', '-']).optional(),
+  // best_practices is file-level (review.best_practices.rules), not a per-symbol
+  // verdict. In a deliberation response it is keyed by the rule name (the
+  // escalation anchor) and applied back onto the file's rules, not a SymbolReview
+  // field — see the file-level apply branch in applyDeliberation.
+  best_practices: z.enum(['PASS', 'WARN', 'FAIL', '-']).optional(),
   confidence: z.int().min(0).max(100),
 });
 
@@ -338,6 +343,28 @@ export function applyDeliberation(
   const allRemovedIds = new Set([...removedActionIds, ...autoPruned]);
   const actions = review.actions.filter((a) => !allRemovedIds.has(a.id));
 
+  // File-level best_practices reclassification (the file-level deliberation
+  // channel). best_practices is not a per-symbol axis: deliberation entries
+  // keyed by rule name carry a best_practices verdict that maps back onto the
+  // file's rules rather than a SymbolReview field. PASS clears the violation.
+  let bestPractices = review.best_practices;
+  if (bestPractices) {
+    const ruleVerdicts = new Map<string, string>();
+    for (const d of deliberation.symbols) {
+      const v = d.deliberated.best_practices;
+      if (v && v !== '-') ruleVerdicts.set(d.name, v);
+    }
+    if (ruleVerdicts.size > 0) {
+      bestPractices = {
+        ...bestPractices,
+        rules: bestPractices.rules.map((r) => {
+          const v = ruleVerdicts.get(r.rule_name);
+          return v && v !== r.status ? { ...r, status: v as typeof r.status } : r;
+        }),
+      };
+    }
+  }
+
   // Recompute verdict from final symbols to ensure coherence
   // (Opus may say CLEAN but ERROR protection could have kept ERROR symbols)
   const verdict = recomputeVerdict(symbols, deliberation.verdict);
@@ -367,6 +394,7 @@ export function applyDeliberation(
     verdict,
     symbols,
     actions,
+    best_practices: bestPractices,
     deliberation: {
       verdict_before: review.verdict,
       verdict_after: verdict,

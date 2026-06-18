@@ -376,6 +376,39 @@ describe('applyDeliberation', () => {
     expect(result.symbols[0].detail).toContain('flow: NEEDS_FIX → OK');
   });
 
+  it('reclassifies a file-level best_practices rule (FAIL → PASS) onto review.best_practices', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [],
+      best_practices: {
+        score: 6,
+        rules: [
+          { rule_id: 1, rule_name: 'no-console', status: 'FAIL', severity: 'medium', detail: 'console.log left in', lines: '12' },
+          { rule_id: 2, rule_name: 'no-any', status: 'PASS', severity: 'low' },
+        ],
+        suggestions: [],
+      },
+    });
+
+    const deliberation = makeDeliberationResponse({
+      verdict: 'CLEAN',
+      symbols: [
+        {
+          name: 'no-console',
+          original: { best_practices: 'FAIL', confidence: 80 },
+          deliberated: { best_practices: 'PASS', confidence: 95 },
+          reasoning: 'The console.log is inside a guarded debug-only branch (src/a.ts:12)',
+        },
+      ],
+    });
+
+    const result = applyDeliberation(review, deliberation);
+    const rule = result.best_practices?.rules.find((r) => r.rule_name === 'no-console');
+    expect(rule?.status).toBe('PASS');
+    // untouched rule stays as-is
+    expect(result.best_practices?.rules.find((r) => r.rule_name === 'no-any')?.status).toBe('PASS');
+  });
+
   it('purges stale per-defect findings when correction is reclassified to OK', () => {
     const review = makeReview({
       verdict: 'NEEDS_REFACTOR',
