@@ -20,6 +20,7 @@ const AxisVerdictSchema = z.object({
   overengineering: z.enum(['LEAN', 'OVER', 'ACCEPTABLE', '-']).optional(),
   tests: z.enum(['GOOD', 'WEAK', 'NONE', '-']).optional(),
   documentation: z.enum(['DOCUMENTED', 'PARTIAL', 'UNDOCUMENTED', '-']).optional(),
+  flow: z.enum(['OK', 'NEEDS_FIX', '-']).optional(),
   confidence: z.int().min(0).max(100),
 });
 
@@ -41,7 +42,7 @@ export type DeliberationResponse = z.infer<typeof DeliberationResponseSchema>;
 export type DeliberatedSymbol = z.infer<typeof DeliberatedSymbolSchema>;
 
 /** Axes that deliberation can reclassify — shared between apply and count logic. */
-const DELIBERATION_AXES = ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation'] as const;
+const DELIBERATION_AXES = ['correction', 'utility', 'duplication', 'overengineering', 'tests', 'documentation', 'flow'] as const;
 type DeliberationAxis = (typeof DELIBERATION_AXES)[number];
 
 // ---------------------------------------------------------------------------
@@ -408,6 +409,7 @@ function setAxisValue(
     case 'overengineering': sym.overengineering = value as typeof sym.overengineering; break;
     case 'tests': sym.tests = value as typeof sym.tests; break;
     case 'documentation': sym.documentation = value as typeof sym.documentation; break;
+    case 'flow': sym.flow = value as typeof sym.flow; break;
   }
 }
 

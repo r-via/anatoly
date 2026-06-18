@@ -181,14 +181,33 @@ export async function applyTier2(review: ReviewFile): Promise<Tier2Result> {
       stats.escalated++;
     }
 
+    // --- Escalation: flow axis (deterministic graph facts) ---
+    // Per the deliberation engagement (doc 05), flow is eligible for tier 3
+    // but escalation is selective: only the FP-prone natures (`unwired_flow`
+    // leans on usage-graph completeness, where a missed dynamic caller yields a
+    // false positive) and low-confidence resolutions warrant an Opus check.
+    // High-confidence structural facts (over_indirect, redundant_flow, ...) are
+    // confirmed by the deterministic proof itself, so escalating them would
+    // burn a tier-3 call with nothing to overturn.
+    if (s.flow === 'NEEDS_FIX' && shouldEscalateFlow(s)) {
+      escalated.push({
+        file: review.file,
+        symbolName: s.name,
+        axis: 'flow',
+        value: 'NEEDS_FIX',
+        reason: flowEscalationReason(s),
+      });
+      stats.escalated++;
+    }
+
     // NOTE: invariant findings (the invariants pipeline phase) are deliberately
-    // NOT escalated to tier 3 here. Tier 3 only reclassifies the six real
-    // DELIBERATION_AXES and prunes `sym.findings`; it has no path to read or
-    // clear `sym.invariant_findings`, so escalating one would burn a tier-3
-    // call without any ability to overturn it — a false safety layer. The
-    // invariants phase's own adversarial judge (same-quantity AND disagreement
-    // required, default-to-no-finding, confidence floor) is the precision gate
-    // for increment 1; a real deliberation-overturn path is a future increment.
+    // NOT escalated to tier 3 here. Tier 3 reclassifies the DELIBERATION_AXES
+    // (the six LLM axes plus flow) and prunes `sym.findings`; it has no path to
+    // read or clear `sym.invariant_findings`, so escalating one would burn a
+    // tier-3 call without any ability to overturn it — a false safety layer.
+    // The invariants phase's own adversarial judge (same-quantity AND
+    // disagreement required, default-to-no-finding, confidence floor) is the
+    // precision gate; a real deliberation-overturn path is a future increment.
 
     return s;
   });
@@ -265,5 +284,36 @@ function isIsolatedFinding(sym: SymbolReview): boolean {
 function isBehavioralChange(detail: string): boolean {
   const lower = detail.toLowerCase();
   return BEHAVIORAL_KEYWORDS.some((kw) => lower.includes(kw));
+}
+
+/** Flow finding natures whose precision leans on usage-graph completeness, so a
+ * tier-3 read of the real source can catch a static-analysis false positive. */
+const FP_PRONE_FLOW_NATURES = ['unwired_flow'] as const;
+
+/** Extract the flow finding nature from the merged detail string (the flow axis
+ * prefixes its rationale with the nature, e.g. `unwired_flow: ...`). */
+function flowNature(detail: string): string | undefined {
+  return detail.match(/\b(unwired_flow|redundant_flow|inconsistent_siblings|over_indirect|effect_asymmetry)\b/)?.[1];
+}
+
+/**
+ * Whether a flow NEEDS_FIX should be escalated to tier 3. Escalate FP-prone
+ * natures (regardless of confidence) and any flow whose resolution confidence
+ * is low; leave clean high-confidence structural facts deterministically
+ * confirmed. See the deliberation engagement (doc 05).
+ */
+function shouldEscalateFlow(sym: SymbolReview): boolean {
+  const nature = flowNature(sym.detail);
+  if (nature && (FP_PRONE_FLOW_NATURES as readonly string[]).includes(nature)) return true;
+  return sym.confidence < LOW_CONFIDENCE_THRESHOLD;
+}
+
+/** Human-readable escalation reason for a flow finding. */
+function flowEscalationReason(sym: SymbolReview): string {
+  const nature = flowNature(sym.detail);
+  if (nature && (FP_PRONE_FLOW_NATURES as readonly string[]).includes(nature)) {
+    return `FP-prone flow nature (${nature}) — verify the usage graph against real callers`;
+  }
+  return `Low-confidence flow resolution (confidence: ${sym.confidence})`;
 }
 

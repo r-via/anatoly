@@ -415,3 +415,39 @@ describe('detectCrossFilePatterns', () => {
     expect(escalated.length).toBe(0);
   });
 });
+
+describe('applyTier2 — flow axis escalation', () => {
+  const flowEsc = (e: { axis: string }) => e.axis === 'flow';
+
+  it('escalates an FP-prone nature (unwired_flow) even at high confidence', async () => {
+    const review = makeReview({
+      symbols: [{ name: 'AppRoutes', flow: 'NEEDS_FIX', confidence: 100, detail: '[NEEDS_FIX] unwired_flow: entry has effects but no caller' }],
+    });
+    const result = await applyTier2(review);
+    expect(result.escalated.filter(flowEsc).map((e) => e.symbolName)).toEqual(['AppRoutes']);
+  });
+
+  it('does NOT escalate a high-confidence structural fact (over_indirect)', async () => {
+    const review = makeReview({
+      symbols: [{ name: 'MusicTab', flow: 'NEEDS_FIX', confidence: 100, detail: '[NEEDS_FIX] over_indirect: routes through 3 transform hops' }],
+    });
+    const result = await applyTier2(review);
+    expect(result.escalated.filter(flowEsc)).toHaveLength(0);
+  });
+
+  it('escalates a low-confidence flow resolution regardless of nature', async () => {
+    const review = makeReview({
+      symbols: [{ name: 'ModuleTab', flow: 'NEEDS_FIX', confidence: 70, detail: '[NEEDS_FIX] over_indirect: routes through 3 transform hops' }],
+    });
+    const result = await applyTier2(review);
+    expect(result.escalated.filter(flowEsc)).toHaveLength(1);
+  });
+
+  it('does not escalate a healthy (OK) flow', async () => {
+    const review = makeReview({
+      symbols: [{ name: 'AppRoutes', flow: 'OK', confidence: 100, detail: "[OK] Flow 'AppRoutes' is wired to a terminal effect" }],
+    });
+    const result = await applyTier2(review);
+    expect(result.escalated.filter(flowEsc)).toHaveLength(0);
+  });
+});

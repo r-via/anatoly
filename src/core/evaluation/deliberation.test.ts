@@ -128,6 +128,24 @@ describe('DeliberationResponseSchema', () => {
     expect(result.success).toBe(true);
   });
 
+  it('should accept the flow axis in verdict', () => {
+    const input = {
+      verdict: 'CLEAN',
+      symbols: [
+        {
+          name: 'AppRoutes',
+          original: { flow: 'NEEDS_FIX', confidence: 100 },
+          deliberated: { flow: 'OK', confidence: 90 },
+          reasoning: 'Grepped a dynamic route registry caller the static walk missed',
+        },
+      ],
+      removed_actions: [],
+      reasoning: 'Flow unwired_flow false positive: entry is wired via a runtime registry',
+    };
+    const result = DeliberationResponseSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
   it('should default removed_actions to empty array', () => {
     const input = {
       verdict: 'CLEAN',
@@ -331,6 +349,31 @@ describe('applyDeliberation', () => {
     expect(result.symbols[0].confidence).toBe(90);
     expect(result.symbols[0].detail).toContain('correction: NEEDS_FIX → OK');
     expect(result.actions).toHaveLength(0);
+  });
+
+  it('should reclassify a flow NEEDS_FIX to OK (deliberation overturns a static false positive)', () => {
+    const review = makeReview({
+      verdict: 'NEEDS_REFACTOR',
+      symbols: [
+        { name: 'AppRoutes', kind: 'function', exported: true, line_start: 1, line_end: 10, correction: '-', overengineering: '-', utility: '-', duplication: '-', tests: '-', documentation: '-', flow: 'NEEDS_FIX', confidence: 100, detail: '[NEEDS_FIX] unwired_flow: entry has effects but no caller', duplicate_target: undefined },
+      ],
+    });
+
+    const deliberation = makeDeliberationResponse({
+      verdict: 'CLEAN',
+      symbols: [
+        {
+          name: 'AppRoutes',
+          original: { flow: 'NEEDS_FIX', confidence: 100 },
+          deliberated: { flow: 'OK', confidence: 90 },
+          reasoning: 'Caller exists via the route registry (src/router.ts:42)',
+        },
+      ],
+    });
+
+    const result = applyDeliberation(review, deliberation);
+    expect(result.symbols[0].flow).toBe('OK');
+    expect(result.symbols[0].detail).toContain('flow: NEEDS_FIX → OK');
   });
 
   it('purges stale per-defect findings when correction is reclassified to OK', () => {

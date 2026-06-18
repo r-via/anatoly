@@ -53,9 +53,6 @@ import { UserFlowArtifactSchema, type UserFlow, type UserFlowArtifact } from '..
 /** A wired flow with this many pure-transform pass-through hops or more is over-indirect. */
 const INDIRECTION_CAP = 2;
 
-/** Fixed confidence for every deterministic flow verdict (structural fact, not a judgement). */
-const FLOW_CONFIDENCE = 90;
-
 /**
  * Verb roots that mark an effect as *creating/growing* an entity. Matched as a
  * camelCase-word prefix (`insertTask` -> create), so a teardown counterpart is
@@ -355,7 +352,12 @@ export class FlowEvaluator implements AxisEvaluator {
         line_start: sym.line_start,
         line_end: sym.line_end,
         value: verdict ? 'NEEDS_FIX' : 'OK',
-        confidence: FLOW_CONFIDENCE,
+        // Propagate the flow's resolution confidence (100 clean, lower when the
+        // walk was truncated or an import resolved ambiguously) rather than a
+        // flat constant, so the refinement pipeline can escalate the genuinely
+        // ambiguous flows (low confidence) while leaving clean structural facts
+        // confirmed deterministically. See the deliberation engagement (doc 05).
+        confidence: flow.confidence,
         detail: verdict
           ? `${verdict.nature}: ${verdict.detail}`
           : `Flow '${flow.entry.symbol}' is wired to a terminal effect with no structural defect.`,
