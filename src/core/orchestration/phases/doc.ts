@@ -32,7 +32,7 @@ import { getDocsDir } from '../../../schemas/config.js';
 import { isFatalAuthError, isAuthFailureMessage, authError } from '../../../utils/errors.js';
 import { smartChunkAndCache } from '../../../rag/index.js';
 import { indexDocSources } from '../../../rag/doc-sources.js';
-import { startGgufContainers, stopGgufContainers } from '../../../rag/docker-gguf.js';
+import { startGgufContainers, stopGgufContainers, setGgufWaitProgressHandler } from '../../../rag/docker-gguf.js';
 import { getLogger } from '../../../utils/logger.js';
 import { runWithContext } from '../../../utils/log-context.js';
 import { retryWithBackoff } from '../../../utils/rate-limiter.js';
@@ -421,7 +421,16 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
   const internalFlowsDir = join('.anatoly', 'state', 'internal-flows');
   const docsDir = getDocsDir(ctx.config);
   const state = ctx.pipelineState;
-  state?.startTask('rag-index-update', '…');
+  state?.startTask('rag-index-update', 'chunking changed docs…');
+  // Drop any stale "In progress" file left over from the embedding phase: an
+  // untracked file with no `doneAt` is never reaped, so a code file lingers in
+  // the pane through this phase and looks like it's being processed. This phase
+  // tracks its own doc files below.
+  state?.activeFiles.clear();
+  // Live detail next to the "Updating RAG index" task. Without it the spinner
+  // sits on a static placeholder for the whole phase (container VRAM load +
+  // embedding) and looks hung — `logPlain` writes nothing in the fancy TUI.
+  const setDetail = (detail: string) => state?.updateTask('rag-index-update', detail);
 
   // Phase 1: smart-chunk changed files into chunk cache (pure computation, no LLM)
   const intChunked = smartChunkAndCache(ctx.projectRoot, internalDocsDir, `${cacheSuffix}-internal`);
@@ -435,13 +444,28 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
     return; // nothing changed
   }
 
-  ctx.renderer?.logPlain(`[rag] smart-chunked ${intChunked} internal${projChunked > 0 ? ` + ${projChunked} project` : ''}${flowChunked > 0 ? ` + ${flowChunked} flow` : ''} doc files`);
+  const chunkSummary = `${intChunked} internal${projChunked > 0 ? ` + ${projChunked} project` : ''}${flowChunked > 0 ? ` + ${flowChunked} flow` : ''} doc files`;
+  ctx.renderer?.logPlain(`[rag] smart-chunked ${chunkSummary}`);
+  setDetail(`chunked ${chunkSummary}`);
 
   // Phase 2: restart embedding containers if advanced mode
   const logFn = ctx.verbose ? (msg: string) => { log.debug(msg); } : undefined;
   let containersStarted = false;
   if (ctx.resolvedRagMode === 'advanced') {
-    containersStarted = await startGgufContainers(ctx.projectRoot, 'nlp', logFn);
+    setDetail('restarting embedding containers…');
+    // The restart reloads the model into VRAM (tens of seconds). The global
+    // wait handler fires once per second while that happens; route it to the
+    // task detail so the elapsed counter shows instead of a frozen spinner
+    // (mirrors runRagPhase). Cleared immediately after so it can't leak into
+    // any later container op.
+    setGgufWaitProgressHandler((model, elapsed) => {
+      setDetail(`loading ${model} model · ${elapsed}s`);
+    });
+    try {
+      containersStarted = await startGgufContainers(ctx.projectRoot, 'nlp', logFn);
+    } finally {
+      setGgufWaitProgressHandler(undefined);
+    }
     if (!containersStarted) {
       log.warn('GGUF containers failed to restart for doc re-indexing — docs will be re-indexed on next run');
       state?.completeTask('rag-index-update', 'skipped (containers unavailable)');
@@ -456,6 +480,7 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
   // `ctx.docsIdentical` was computed by the rag-index pass; pass it through
   // so identity is not recomputed.
   let taskSummary = 'failed';
+  setDetail('embedding doc sections…');
   try {
     const onLog = (msg: string) => {
       ctx.runLog?.debug({ phase: 'rag-index-update' }, msg);
@@ -473,6 +498,10 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
       referencePaths: ctx.config.documentation?.reference?.paths ?? [],
       docsIdentical: ctx.docsIdentical,
       onLog,
+      // Surface each doc section file in the "In progress" pane, mirroring the
+      // main embedding phase, so the phase shows live per-file activity.
+      onFileStart: (file) => { state?.trackFile(file); },
+      onFileDone: (file) => { state?.untrackFile(file); },
       isInterrupted: () => ctx.interrupted,
       conversationDir: conversationsDir(ctx.runDir),
       router: ctx.router,
@@ -492,6 +521,10 @@ export async function reindexDocsAfterUpdate(ctx: RunContext, handoff: Handoff, 
       await stopGgufContainers(logFn);
       ctx.renderer?.logPlain('[rag] GGUF containers stopped after doc re-indexing');
     }
+    // Clear any doc files still tracked (e.g. on interruption) so the pane
+    // doesn't carry stale entries into the next phase — the very leak this
+    // phase started by clearing.
+    state?.activeFiles.clear();
     state?.completeTask('rag-index-update', taskSummary);
   }
 }
