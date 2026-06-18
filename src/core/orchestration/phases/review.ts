@@ -237,7 +237,11 @@ export async function runReviewPhase(
     try {
       flowsArtifactHash = computeContentHash(readFileSync(flowArtifactPath(ctx.projectRoot), 'utf-8'));
     } catch { /* artifact absent (flows phase disabled / not yet run) → 'absent' */ }
-    axisPromptHashes.flow = `${axisPromptHashes.flow}:flows=${flowsArtifactHash}`;
+    // Schema-version tag: bump when the flow review's persisted shape changes
+    // so existing on-disk caches invalidate once and re-evaluate (flow is
+    // LLM-free, so the re-eval is free). v2 = the `flow_detail` field was added;
+    // caches written before it lack the field and render "(no detail recorded)".
+    axisPromptHashes.flow = `${axisPromptHashes.flow}:flows=${flowsArtifactHash}:v2`;
   }
   const axisMetaFor = (axes: readonly string[]): Record<string, { prompt_hash: string; model_id: string }> => {
     const out: Record<string, { prompt_hash: string; model_id: string }> = {};
