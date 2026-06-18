@@ -111,8 +111,11 @@ describe('orchestration goldens', () => {
       expect(proc.status, `run did not exit cleanly:\n${out.slice(-3000)}`).toBe(0);
       expect(metrics, `run-metrics.json missing:\n${out.slice(-3000)}`).not.toBeNull();
       expect(projectionFrom(metrics!)).toEqual({
-        phaseStartOrder: ['scan', 'estimate', 'triage', 'rag-index', 'review', 'report'],
-        phaseDurationKeys: ['estimate', 'rag-index', 'review', 'scan', 'triage'],
+        // `flows` + `flow-doc` run by default now (FlowsConfigSchema default on).
+        // Both no-op on a source-free fixture (no usage graph / no artifact) but
+        // still record their phase boundary and zero LLM calls.
+        phaseStartOrder: ['scan', 'estimate', 'triage', 'rag-index', 'flows', 'flow-doc', 'review', 'report'],
+        phaseDurationKeys: ['estimate', 'flow-doc', 'flows', 'rag-index', 'review', 'scan', 'triage'],
         filesReviewed: 0,
         evaluated: 0,
         findings: 0,
@@ -131,8 +134,10 @@ describe('orchestration goldens', () => {
       expect(proc.status, `unexpected exit code:\n${out.slice(-3000)}`).toBe(1);
       expect(metrics, `run-metrics.json missing:\n${out.slice(-3000)}`).not.toBeNull();
       expect(projectionFrom(metrics!)).toEqual({
-        phaseStartOrder: ['scan', 'estimate', 'rag-index', 'review', 'report'],
-        phaseDurationKeys: ['estimate', 'rag-index', 'review', 'scan'],
+        // `flows` + `flow-doc` run by default now (FlowsConfigSchema default on);
+        // both no-op without an LLM call but record their phase boundary.
+        phaseStartOrder: ['scan', 'estimate', 'rag-index', 'flows', 'flow-doc', 'review', 'report'],
+        phaseDurationKeys: ['estimate', 'flow-doc', 'flows', 'rag-index', 'review', 'scan'],
         filesReviewed: 1,
         evaluated: 1,
         // 2 DEAD exports → 2 findings. Only the `utility` axis is enabled in the

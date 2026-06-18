@@ -119,7 +119,7 @@ export interface RunContext {
   deliberation: boolean;
   /** Whether the pre-deliberation invariants phase is enabled (default false) */
   invariants: boolean;
-  /** Whether the deterministic flows phase (doc 23, Stage 1) is enabled (default false) */
+  /** Whether the deterministic flows phase (doc 23, Stage 1) is enabled (default true; also gates the flow-doc narration phase) */
   flows: boolean;
   /** Accumulated phase durations for run-metrics.json */
   phaseDurations: Record<string, number>;
@@ -688,11 +688,13 @@ export function registerRunCommand(program: Command): void {
         invariants: cmdOpts.invariants === true
           ? true
           : (config.invariants?.enabled ?? false),
-        // --flows force-enables; otherwise honor config (default false). Opt-in
-        // during bring-up (doc 23, Stage 1). No --no-flows flag yet.
+        // --flows force-enables; otherwise honor config (default true). The
+        // fallback mirrors the FlowsConfigSchema default so a config object
+        // missing the section still runs the phase. No --no-flows flag yet
+        // (disable via `flows: { enabled: false }` in the config).
         flows: cmdOpts.flows === true
           ? true
-          : (config.flows?.enabled ?? false),
+          : (config.flows?.enabled ?? true),
         interrupted: false,
         activeAborts: new Set(),
         reviewCounts: { skipped: 0, cached: 0, evaluated: 0 },

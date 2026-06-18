@@ -155,13 +155,15 @@ export const InvariantsConfigSchema = z.object({
  * walks the cross-file reference graph to derive the structured user-flow
  * artifact, NOT an axis). Runs right after the RAG phase (the earliest point
  * cards + usage-graph are co-resident) and is gated on RAG being active. The
- * schema default stays disabled so configs that omit the section (and the
- * no-config path) remain a no-op during Stage-1 bring-up; it can be toggled on
- * here or forced on with the `--flows` CLI flag. Emits zero scored findings, so
- * enabling it can never perturb existing run scores (design invariant I1).
+ * schema default is enabled: configs that omit the section (and the no-config
+ * path) run the phase by default; it can be disabled here or per-config. It
+ * still no-ops when RAG is inactive. Emits zero scored findings, so enabling it
+ * can never perturb existing run scores (design invariant I1). Note: this gate
+ * also drives the `flow-doc` phase (agentic narration of user-flows.md), which
+ * therefore runs by default too on projects without that page.
  */
 export const FlowsConfigSchema = z.object({
-  enabled: z.boolean().default(false),
+  enabled: z.boolean().default(true),
 });
 
 // --- v1.0 Runtime ---
@@ -342,7 +344,7 @@ export const ConfigSchema = z.object({
   }),
   agents: AgentsConfigSchema.default({ enabled: true, max_turns: 30 }),
   invariants: InvariantsConfigSchema.default({ enabled: false }),
-  flows: FlowsConfigSchema.default({ enabled: false }),
+  flows: FlowsConfigSchema.default({ enabled: true }),
   commands: CommandsConfigSchema.optional(),
   runtime: RuntimeConfigSchema.default({
     timeout_per_call: 600,
@@ -360,9 +362,10 @@ export const ConfigSchema = z.object({
     best_practices: { enabled: true },
     documentation: { enabled: true },
     // The `flow` axis (doc 23 section 7) is deterministic and consumes the
-    // `flows` phase artifact, which itself defaults to disabled. It defaults to
-    // OFF (opt-in) so existing projects do not gain a new axis column unless
-    // they enable it; mirrors `EvaluationAxesSchema.flow` in config-v3.ts.
+    // `flows` phase artifact (the phase itself now defaults to enabled). The
+    // axis still defaults to OFF (opt-in) so existing projects do not gain a
+    // new axis column unless they enable it; mirrors `EvaluationAxesSchema.flow`
+    // in config-v3.ts.
     flow: { enabled: false },
   }),
   // Other sections
