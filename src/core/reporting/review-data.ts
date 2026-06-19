@@ -137,6 +137,25 @@ const SYMBOL_AXIS_FIELDS = [
   'utility', 'duplication', 'correction', 'overengineering', 'tests', 'documentation',
 ] as const;
 
+const NEUTRALIZED_SEGMENT = '[-] (axis not evaluated this run)';
+
+/**
+ * Reverse of `AXIS_DEFAULTS` for the symbol-level LLM axes. A crash sentinel is
+ * written as `[<axis default>] *(axis crashed — see transcript)*`, and the
+ * default values are distinct across these axes, so the leading tag uniquely
+ * identifies the crashed axis regardless of where the segment sits. `flow` is
+ * deterministic (never crashes) and `best_practices` is file-level, so neither
+ * appears here.
+ */
+const CRASH_TAG_TO_AXIS: Record<string, string> = {
+  USED: 'utility',
+  UNIQUE: 'duplication',
+  OK: 'correction',
+  LEAN: 'overengineering',
+  NONE: 'tests',
+  DOCUMENTED: 'documentation',
+};
+
 /**
  * Restrict a freshly-loaded review set to the axes actually evaluated this run.
  *
@@ -180,22 +199,37 @@ export function restrictReviewsToEvaluatedAxes(
       // (not a positional `detail` segment), so neutralize both directly.
       if (!evaluatedAxes.has('flow')) { s.flow = '-'; s.flow_detail = undefined; }
 
-      // Neutralize the matching detail segments. The detail is a positional
-      // `[VALUE] text | …` join in SYMBOL_AXIS_FIELDS order. Only when all six
-      // segments are present (the shape produced by a prior full run, which is
-      // exactly where the stale cross-axis data comes from) can we map index →
-      // axis safely; dropping the non-evaluated segments also removes their
-      // crash sentinels so isDegradedReview / crashedAxisIds stop flagging an
-      // axis that did not run this run.
+      // Neutralize the matching detail segments. Two passes:
       const segments = s.detail.split(/\s*\|\s*/);
+      let detailChanged = false;
+      // (a) Canonical full-run shape (one segment per symbol-level axis): map
+      // index → axis positionally and neutralize every non-evaluated segment
+      // (stale verdict text AND crash sentinels).
       if (segments.length === SYMBOL_AXIS_FIELDS.length) {
         for (let i = 0; i < SYMBOL_AXIS_FIELDS.length; i++) {
-          if (!evaluatedAxes.has(SYMBOL_AXIS_FIELDS[i])) {
-            segments[i] = '[-] (axis not evaluated this run)';
+          if (!evaluatedAxes.has(SYMBOL_AXIS_FIELDS[i]) && segments[i] !== NEUTRALIZED_SEGMENT) {
+            segments[i] = NEUTRALIZED_SEGMENT;
+            detailChanged = true;
           }
         }
-        s.detail = segments.join(' | ');
       }
+      // (b) Crash-sentinel strip, independent of segment count. A cached review
+      // from a differently-filtered prior run can carry any number of segments
+      // (skipped axes emit none), so (a) may not fire and a stale sentinel
+      // survives, inflating this run's "axis crashes" / Degraded Reviews count.
+      // A sentinel's leading tag maps to its axis (CRASH_TAG_TO_AXIS); drop it
+      // unless that axis actually ran this run (an unknown tag is treated as
+      // stale and dropped).
+      for (let i = 0; i < segments.length; i++) {
+        if (segments[i] === NEUTRALIZED_SEGMENT || !segments[i].includes(CRASH_SENTINEL)) continue;
+        const tag = segments[i].match(/^\[([^\]]+)\]/)?.[1];
+        const axis = tag ? CRASH_TAG_TO_AXIS[tag] : undefined;
+        if (!axis || !evaluatedAxes.has(axis)) {
+          segments[i] = NEUTRALIZED_SEGMENT;
+          detailChanged = true;
+        }
+      }
+      if (detailChanged) s.detail = segments.join(' | ');
     }
     if (!evaluatedAxes.has('best-practices')) {
       review.best_practices = undefined;

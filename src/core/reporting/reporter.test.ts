@@ -25,6 +25,7 @@ import {
   hasAxisFinding,
   type TriageStats,
 } from './reporter.js';
+import { restrictReviewsToEvaluatedAxes, isDegradedReview } from './review-data.js';
 
 function makeReview(overrides: Partial<ReviewFile> = {}): ReviewFile {
   return {
@@ -105,6 +106,35 @@ describe('computeFileVerdict', () => {
       symbols: [makeSymbol({ flow: 'NEEDS_FIX', confidence: 85, flow_detail: 'unwired_flow: entry reaches no effect' })],
     });
     expect(computeFileVerdict(review)).toBe('NEEDS_REFACTOR');
+  });
+});
+
+describe('restrictReviewsToEvaluatedAxes — stale crash sentinels', () => {
+  const SENTINEL = '*(axis crashed — see transcript)*';
+
+  it('drops a stale crash sentinel for a non-evaluated axis in a filtered run (non-canonical segment count)', () => {
+    // Cached review from a prior run where `correction` crashed on this file;
+    // only 2 detail segments (a partial prior run), so the positional pass
+    // cannot fire. This run is `--axes flow`.
+    const review = makeReview({
+      symbols: [makeSymbol({
+        correction: 'OK',
+        flow: 'NEEDS_FIX',
+        confidence: 90,
+        detail: `[OK] ${SENTINEL} | [NEEDS_FIX] unwired_flow: entry reaches no effect`,
+      })],
+    });
+    restrictReviewsToEvaluatedAxes([review], new Set(['flow']));
+    expect(isDegradedReview(review)).toBe(false);
+    expect(review.symbols[0].detail).not.toContain('axis crashed');
+  });
+
+  it('keeps a crash sentinel for an axis that DID run this run', () => {
+    const review = makeReview({
+      symbols: [makeSymbol({ correction: '-', confidence: 80, detail: `[OK] ${SENTINEL}` })],
+    });
+    restrictReviewsToEvaluatedAxes([review], new Set(['correction']));
+    expect(isDegradedReview(review)).toBe(true);
   });
 });
 
