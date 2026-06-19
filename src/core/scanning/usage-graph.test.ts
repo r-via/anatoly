@@ -99,6 +99,38 @@ describe('buildUsageGraph', () => {
     expect(getSymbolUsage(graph, 'readProgress', 'src/utils/cache.ts')).toEqual(['src/core/scanner.ts']);
   });
 
+  it('bridges a default-exported React component to its declared name (JSX wiring recognizer)', async () => {
+    // A default import is keyed under the synthetic name `default`; the React
+    // wiring recognizer re-keys it under the component's declared name, where
+    // flow's resolveDead / the utility axis look it up — so `<Auth/>` pages are
+    // no longer false-DEAD / unwired.
+    createFile('src/pages/Auth.tsx', 'export default function Auth() { return null; }\n');
+    createFile('src/App.tsx', "import Auth from './pages/Auth';\nexport default function App() { return <Auth/>; }\n");
+
+    const tasks = [
+      makeTask('src/pages/Auth.tsx', [{ name: 'Auth', exported: true, is_default: true }]),
+      makeTask('src/App.tsx', [{ name: 'App', exported: true, is_default: true }]),
+    ];
+
+    const graph = await graphOf(tasks);
+    // The synthetic `default` edge still exists; the bridge ADDS the declared name.
+    expect(getSymbolUsage(graph, 'Auth', 'src/pages/Auth.tsx')).toContain('src/App.tsx');
+  });
+
+  it('does NOT bridge default imports in a plain .ts (non-JSX) codebase', async () => {
+    createFile('src/utils/format.ts', 'export default function format() {}\n');
+    createFile('src/core/reporter.ts', "import format from '../utils/format.js';\n");
+
+    const tasks = [
+      makeTask('src/utils/format.ts', [{ name: 'format', exported: true, is_default: true }]),
+      makeTask('src/core/reporter.ts', [{ name: 'generateReport', exported: true }]),
+    ];
+
+    const graph = await graphOf(tasks);
+    // No JSX, no React framework → recognizer inert; only the `default` key holds the edge.
+    expect(getSymbolUsage(graph, 'format', 'src/utils/format.ts')).toEqual([]);
+  });
+
   it('tracks named imports with aliases (as)', () => {
     createFile('src/utils/format.ts', 'export function bold() {}\n');
     createFile('src/core/reporter.ts', "import { bold as makeBold } from '../utils/format.js';\n");
@@ -656,21 +688,25 @@ describe('buildUsageGraph — default exports', () => {
   });
 
   it('still flags the symbol DEAD when is_default is not set (proves the flag matters)', async () => {
-    createFile('src/App.tsx', 'export default function App() { return null; }\n');
-    createFile('src/main.tsx', "import App from './App';\n");
+    // Plain `.ts` (non-JSX): the React wiring recognizer does not apply here, so
+    // this isolates the `is_default` name↔default bridge in
+    // resolveExportedSymbolUtility. For `.tsx`/JSX the recognizer bridges the
+    // edge regardless of the flag — see the JSX wiring test above.
+    createFile('src/server.ts', 'export default function server() { return null; }\n');
+    createFile('src/main.ts', "import server from './server';\n");
 
     const tasks = [
-      makeTask('src/App.tsx', [{ name: 'App', exported: true }]),
-      makeTask('src/main.tsx', [{ name: 'main', exported: true }]),
+      makeTask('src/server.ts', [{ name: 'server', exported: true }]),
+      makeTask('src/main.ts', [{ name: 'main', exported: true }]),
     ];
 
     const graph = await graphOf(tasks);
-    // The importer edge is recorded under `default`, not `App`; without the
+    // The importer edge is recorded under `default`, not `server`; without the
     // is_default flag the name-keyed lookup misses it.
     const verdict = resolveExportedSymbolUtility(
-      { name: 'App', exported: true },
+      { name: 'server', exported: true },
       graph,
-      'src/App.tsx',
+      'src/server.ts',
     );
     expect(verdict?.value).toBe('DEAD');
   });

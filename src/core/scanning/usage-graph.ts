@@ -5,6 +5,7 @@
 import { readFileSync, existsSync, readdirSync } from 'node:fs';
 import { resolve, dirname, relative, extname, join } from 'node:path';
 import type { Task } from '../../schemas/task.js';
+import { recognizeWiringEdges } from './wiring/wiring-recognizer.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { resolveAdapter } from './language-adapters.js';
 import { detectPythonSourceRoots } from './python-source-roots.js';
@@ -661,6 +662,24 @@ export function buildUsageGraph(
       }
     }
   }
+
+  // Framework-adaptive wiring: recognizers add the edges the static import
+  // scan cannot see (React default-export components used via JSX, lazy-loaded
+  // routes, and — as recognizers are added — DI/decorator/registry wiring in
+  // other ecosystems), keyed by the declared export name so flow/utility no
+  // longer mis-flag a wired symbol DEAD/unwired. Discovery-gated on the
+  // detected frameworks, so non-matching codebases pay nothing.
+  const frameworks = new Set<string>();
+  for (const t of allImporters) if (t.framework) frameworks.add(t.framework.toLowerCase());
+  const wiringEdges = recognizeWiringEdges({
+    projectRoot,
+    importers: allImporters,
+    exportsByFile: allExportsByFile,
+    resolveImport: (specifier, importerAbs) =>
+      resolveImportPath(specifier, importerAbs, projectRoot, tsPathAliases) ?? undefined,
+    frameworks,
+  });
+  for (const e of wiringEdges) addUsageEdge(usages, e.symbol, e.sourceFile, e.importer);
 
   const intraFileRefs = buildIntraFileGraph(projectRoot, tasks);
 
