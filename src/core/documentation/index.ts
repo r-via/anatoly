@@ -35,6 +35,7 @@ export type { DocExecutor } from './generation/doc-llm-executor.js';
 export {
   needsBootstrap,
   writeScaffoldStatus,
+  readScaffoldStatus,
   writeCoherenceStatus,
   computeDocSetSignature,
   coherenceUpToDate,

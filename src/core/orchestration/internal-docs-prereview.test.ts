@@ -90,3 +90,44 @@ describe('Story 55.2 — RAG reindex after doc update preserved', () => {
     expect(reindexAfter).toBeGreaterThan(docUpdateIdx);
   });
 });
+
+// ---------------------------------------------------------------------------
+// resume-in-place — doc-update short-circuit
+//
+// A run that completed the doc-update phase group then crashed in a LATER
+// phase (e.g. deliberation) must NOT replay the expensive LLM doc
+// regeneration / RAG re-index / conflict detection when resumed. The signal
+// is the scaffold marker: `--resume` reuses the same runId, so a marker with
+// `lastMode === 'update'` AND `lastRunId === ctx.runId` proves this run already
+// finished doc-update in a prior attempt.
+// ---------------------------------------------------------------------------
+
+describe('resume-in-place — doc-update short-circuit', () => {
+  it('keys the skip on the scaffold marker matching THIS run (lastRunId === ctx.runId, mode update)', () => {
+    expect(runTsContent).toContain('docUpdateAlreadyDone');
+    expect(runTsContent).toContain("resumedDocStatus?.lastMode === 'update'");
+    expect(runTsContent).toContain('resumedDocStatus.lastRunId === ctx.runId');
+  });
+
+  it('short-circuits BEFORE runDocUpdate (skips, never replays the body)', () => {
+    const skipBranchIdx = runTsContent.indexOf("'skipped (resumed — already updated)'");
+    const docUpdateIdx = runTsContent.indexOf('await runDocUpdate(');
+    expect(skipBranchIdx).toBeGreaterThan(-1);
+    expect(docUpdateIdx).toBeGreaterThan(-1);
+    expect(skipBranchIdx).toBeLessThan(docUpdateIdx);
+  });
+
+  it('only fires when the gate would otherwise run the phase (id.run guard)', () => {
+    // The skip branch must be gated on id.run so off/lite/no-evaluable runs
+    // keep their existing skip-reason branches instead of this one.
+    expect(runTsContent).toContain('if (id.run && docUpdateAlreadyDone && !ctx.interrupted)');
+  });
+
+  it('completes all three doc-update tasks so the TUI does not hang on resume', () => {
+    const skipBranchIdx = runTsContent.indexOf('if (id.run && docUpdateAlreadyDone');
+    const branch = runTsContent.slice(skipBranchIdx, skipBranchIdx + 500);
+    expect(branch).toContain("completeTask('internal-docs', 'skipped (resumed — already updated)')");
+    expect(branch).toContain("completeTask('rag-index-update', 'skipped (resumed)')");
+    expect(branch).toContain("completeTask('doc-conflict-update', 'skipped (resumed)')");
+  });
+});

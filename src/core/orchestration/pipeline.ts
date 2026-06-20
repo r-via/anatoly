@@ -39,7 +39,7 @@ import { isDocAxisActive } from '../evaluation/index.js';
 import { formatRunDuration } from '../../utils/format.js';
 import { PipelineState } from '../../cli/pipeline-state.js';
 import { ScreenRenderer } from '../../cli/screen-renderer.js';
-import { needsBootstrap, writeScaffoldStatus } from '../documentation/index.js';
+import { needsBootstrap, writeScaffoldStatus, readScaffoldStatus } from '../documentation/index.js';
 import { anatolyPath } from '../../utils/anatoly-paths.js';
 import { runDocConflictDetection } from '../documentation/index.js';
 import { recordDocConflictCost } from './cost.js';
@@ -296,8 +296,27 @@ export async function runPipeline(ctx: RunContext, deps: PipelineDeps): Promise<
         // (gates.ts; it computes hasEvaluableFiles from handoff.triageMap,
         // the identical ref to the pre-PR-4b setup.triageMap). Bodies and
         // effects stay inline and verbatim; behaviorally byte-identical.
+        // Resume short-circuit (doc 14 / resume-in-place): when THIS run (same
+        // runId) already completed the doc-update phase group in a prior
+        // attempt, do not replay it. The scaffold marker below is written only
+        // after internal-docs + rag-index-update succeed, and a fresh run always
+        // gets a brand-new runId, so `lastRunId === ctx.runId` holds only on a
+        // `--resume` of a run that got past doc-update before crashing (e.g. in
+        // deliberation). Skipping avoids re-running the expensive LLM doc
+        // regeneration, RAG re-index and conflict detection that already ran.
+        // This mirrors the per-file review cache (progress.json) — the only
+        // other resume-aware skip — and shares its same-working-tree assumption.
+        const resumedDocStatus = readScaffoldStatus(ctx.projectRoot);
+        const docUpdateAlreadyDone =
+          resumedDocStatus?.lastMode === 'update'
+          && resumedDocStatus.lastRunId === ctx.runId;
+
         const id = internalDocsGate(ctx, handoff);
-        if (id.run && !ctx.interrupted) {
+        if (id.run && docUpdateAlreadyDone && !ctx.interrupted) {
+          ctx.pipelineState?.completeTask('internal-docs', 'skipped (resumed — already updated)');
+          if (ctx.enableRag) ctx.pipelineState?.completeTask('rag-index-update', 'skipped (resumed)');
+          ctx.pipelineState?.completeTask('doc-conflict-update', 'skipped (resumed)');
+        } else if (id.run && !ctx.interrupted) {
           await runPhase(ctx, 'internal-docs', async () => {
             await runDocUpdate(ctx, handoff, setup.tasks);
           });
