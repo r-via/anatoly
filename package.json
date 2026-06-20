@@ -1,6 +1,6 @@
 {
   "name": "@r-via/anatoly",
-  "version": "0.9.6",
+  "version": "0.9.7-beta.0",
   "description": "Deep Audit Agent for TypeScript codebases",
   "type": "module",
   "bin": {
@@ -39,7 +39,7 @@
   "bugs": {
     "url": "https://github.com/r-via/anatoly/issues"
   },
-  "homepage": "https://github.com/r-via/anatoly#readme",
+  "homepage": "https://anatoly.cloud",
   "dependencies": {
     "@ai-sdk/anthropic": "^3.0.64",
     "@ai-sdk/google": "^3.0.53",
