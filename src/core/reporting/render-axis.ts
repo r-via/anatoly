@@ -288,6 +288,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
     case 'utility':
       lines.push('Detects dead or low-value code using a pre-computed import/usage graph.');
       lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push('The static import graph is computed once for the whole codebase, then every exported symbol is matched to its direct importers, type-only importers, and transitive references. A symbol with zero importers is marked DEAD without ever calling the model; the rest are sent to the model with their full reverse-usage breakdown so it can spot live-but-pointless wrappers. No semantic search or documentation is involved, and low-confidence verdicts can be re-examined by the deliberation pass.');
+      lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
       lines.push('- **USED**: The symbol is imported or referenced by at least one other file (exported) or used locally (non-exported).');
@@ -298,6 +302,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
     case 'duplication':
       lines.push('Identifies code clones via RAG semantic vector search against the codebase index.');
       lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push('Every function is embedded and searched against the codebase index with a hybrid code-and-text vector search (60% code weight), keeping up to 8 candidates above a 0.70 similarity score. Trivial functions (two lines or fewer) and symbols with no candidate are marked UNIQUE without a model call. The remaining candidates, together with their signatures and call sites, are handed to the model so it can confirm whether the logic is genuinely a clone rather than a coincidental name match. Verdicts can be revisited by the deliberation pass.');
+      lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
       lines.push('- **UNIQUE**: No semantically similar function found, or similarity score < 0.75.');
@@ -306,6 +314,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
 
     case 'correction':
       lines.push('Finds bugs, logic errors, incorrect types, and unsafe operations. Only flags real correctness issues, not style.');
+      lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push('It runs in two passes. The first reads the full function body (not just signatures) together with its callers, the interfaces of the functions it imports, and any resolved reference docs, then flags suspected bugs. A second verification pass re-reads each flagged symbol in context and keeps a NEEDS_FIX or ERROR verdict only when confidence is at least 85, which suppresses speculative findings. Unresolved documentation conflicts are excluded so stale docs never drive a false bug. The deliberation pass can re-arbitrate the result.');
       lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
@@ -317,6 +329,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
     case 'overengineering':
       lines.push('Evaluates whether complexity is justified by actual requirements.');
       lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push('Each symbol is judged against how widely it is actually used. The reverse-usage graph supplies its caller count and transitive importer count, while the project tree and dependency manifest give context on whether an abstraction earns its keep. A class or type with a single importer is surfaced as a candidate, and the model weighs its complexity against that real demand. Reference and internal docs are injected as context but never decide the verdict, and the deliberation pass can re-examine borderline cases.');
+      lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
       lines.push('- **LEAN**: Implementation is minimal and appropriate for its purpose. A long function doing one thing well is still LEAN.');
@@ -326,6 +342,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
 
     case 'tests':
       lines.push('Assesses test coverage quality using coverage data (when available) and test file analysis.');
+      lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push('It combines three inputs: the symbol source, its test file (read up to 500 lines), and the Istanbul coverage table (statements, branches, functions, and lines). The model reads those coverage numbers directly rather than applying a fixed percentage cutoff, and uses the usage graph to credit private helpers that are exercised indirectly through a tested export. Types and interfaces with no runtime behaviour default to GOOD. The deliberation pass can revisit the verdict.');
       lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
@@ -338,6 +358,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
       const docTerm = docCommentTerm(language);
       lines.push(`Evaluates ${docTerm} coverage on exported symbols and optional /docs/ concept coverage.`);
       lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push(`Exported symbols are checked for a complete ${docTerm}. In parallel, the files under /docs are scored as ground truth for concept coverage: each concept is marked COVERED, PARTIAL, MISSING, or OUTDATED and rolled up into a 0-100 score. Internal and flow docs are read for context only and never scored. This is the only axis that treats your project documentation as the source of truth, and the deliberation pass can refine the result.`);
+      lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
       lines.push(`- **DOCUMENTED**: Symbol has a complete ${docTerm} covering description, params, and return type.`);
@@ -348,6 +372,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
 
     case 'flow': {
       lines.push('Deterministic analysis of user-flow shape from the static flow graph (`.anatoly/state/internal-flows/flows.json`). No LLM: every verdict is derived from the call graph and the usage graph, so it is reproducible and free.');
+      lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push('No model is called: the flows phase pre-computes a static flow graph, and each entry symbol is checked against deterministic rules. Sibling flows are compared step by step, pure pass-through chains longer than 2 hops trip the over-indirection rule, and effects are paired by verb (create verbs such as insert or register against teardown verbs such as delete or unregister) to detect an unbalanced effect. Because it is fully deterministic it is reproducible and costs nothing; only entries whose import resolution is ambiguous carry a confidence below 100 and may escalate to the deliberation pass.');
       lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
@@ -364,6 +392,10 @@ function renderAxisMethodology(axis: ReportAxisId, language?: string): string[] 
     case 'best-practices': {
       const bpLabel = language === 'rust' ? 'Rust' : language === 'python' ? 'Python' : language === 'go' ? 'Go' : 'TypeScript';
       lines.push(`File-level evaluation against language-specific ${bpLabel} best-practice rules. Starts at 10/10, penalties subtracted per violation.`);
+      lines.push('');
+      lines.push('### How it works');
+      lines.push('');
+      lines.push(`The file is first classified by role (React component, API handler, utility, config, test, or general) and then scored against a fixed set of ${bpLabel} rules covering naming, error handling, type safety, and code organisation. Each rule returns PASS, WARN, or FAIL at a CRITICAL, HIGH, or MEDIUM severity; penalties are subtracted from a starting 10/10, and failing rules come with concrete before/after fix suggestions. This is the only file-level axis, so its verdicts apply to the whole file rather than to individual symbols, and the deliberation pass can reclassify them.`);
       lines.push('');
       lines.push('### Rating Criteria');
       lines.push('');
