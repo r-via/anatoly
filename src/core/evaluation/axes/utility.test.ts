@@ -2,9 +2,10 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
-import { buildUtilitySystemPrompt, buildUtilityUserMessage } from './utility.js';
+import { buildUtilitySystemPrompt, buildUtilityUserMessage, UtilityEvaluator } from './utility.js';
+import * as evaluator from '../evaluator.js';
 import type { AxisContext } from '../contract.js';
 import type { Task } from '../../../schemas/task.js';
 import type { UsageGraph } from '../../scanning/index.js';
@@ -109,5 +110,54 @@ describe('buildUtilityUserMessage', () => {
     const msg = buildUtilityUserMessage(createCtx({ usageGraph: undefined }));
     expect(msg).not.toContain('Pre-computed Import Analysis');
     expect(msg).toContain('formatNumber');
+  });
+});
+
+describe('UtilityEvaluator.evaluate — graph-proven liveness is authoritative', () => {
+  it('vetoes an LLM DEAD that contradicts a graph-proven USED', async () => {
+    // padLeft is non-exported with no in-file liveness → the graph cannot
+    // resolve it → the file is sent to the LLM. The LLM (single-file view)
+    // wrongly returns DEAD for formatNumber, which the graph proved USED via 2
+    // cross-file importers. The merge must keep USED.
+    const spy = vi.spyOn(evaluator, 'runSingleTurnQuery').mockResolvedValue({
+      data: {
+        symbols: [
+          { name: 'formatNumber', line_start: 1, line_end: 10, utility: 'DEAD', confidence: 80, detail: 'no local callers' },
+          { name: 'padLeft', line_start: 12, line_end: 20, utility: 'USED', confidence: 80, detail: 'called by formatNumber' },
+          { name: 'MAX_WIDTH', line_start: 22, line_end: 22, utility: 'DEAD', confidence: 80, detail: 'unused' },
+        ],
+      },
+      costUsd: 0, durationMs: 0, inputTokens: 0, outputTokens: 0,
+      cacheReadTokens: 0, cacheCreationTokens: 0, transcript: '',
+    } as unknown as Awaited<ReturnType<typeof evaluator.runSingleTurnQuery>>);
+
+    const result = await new UtilityEvaluator().evaluate(createCtx(), new AbortController());
+    spy.mockRestore();
+
+    const fn = result.symbols.find((s) => s.name === 'formatNumber')!;
+    expect(fn.value).toBe('USED');
+    expect(fn.detail).toContain('Runtime-imported'); // kept the graph verdict, not the LLM prose
+    // A symbol the graph could not resolve is still decided by the LLM.
+    expect(result.symbols.find((s) => s.name === 'padLeft')!.value).toBe('USED');
+  });
+
+  it('still lets the LLM refine a graph-USED symbol to a non-DEAD verdict (LOW_VALUE)', async () => {
+    const spy = vi.spyOn(evaluator, 'runSingleTurnQuery').mockResolvedValue({
+      data: {
+        symbols: [
+          { name: 'formatNumber', line_start: 1, line_end: 10, utility: 'LOW_VALUE', confidence: 80, detail: 'thin wrapper' },
+          { name: 'padLeft', line_start: 12, line_end: 20, utility: 'USED', confidence: 80, detail: 'used' },
+          { name: 'MAX_WIDTH', line_start: 22, line_end: 22, utility: 'DEAD', confidence: 80, detail: 'unused' },
+        ],
+      },
+      costUsd: 0, durationMs: 0, inputTokens: 0, outputTokens: 0,
+      cacheReadTokens: 0, cacheCreationTokens: 0, transcript: '',
+    } as unknown as Awaited<ReturnType<typeof evaluator.runSingleTurnQuery>>);
+
+    const result = await new UtilityEvaluator().evaluate(createCtx(), new AbortController());
+    spy.mockRestore();
+
+    // Not a DEAD reversal → the LLM refinement is kept.
+    expect(result.symbols.find((s) => s.name === 'formatNumber')!.value).toBe('LOW_VALUE');
   });
 });

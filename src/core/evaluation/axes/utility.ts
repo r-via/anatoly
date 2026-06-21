@@ -244,10 +244,24 @@ export class UtilityEvaluator implements AxisEvaluator {
       detail: s.detail,
     }));
 
-    // Merge: LLM results take precedence, auto-results fill in the rest
+    // Merge: the LLM refines symbols the graph could not resolve, but a
+    // graph-PROVEN `USED` verdict (the symbol has real cross-file importers the
+    // single-file LLM prompt cannot see) is authoritative and is never
+    // overturned to `DEAD`. Without this veto the LLM flips graph-proven-USED
+    // symbols to a false DEAD — e.g. a Go method or helper called only from a
+    // sibling file in the same package, where per-file analysis "finds zero
+    // local references". The LLM may still refine such a symbol to a non-DEAD
+    // nuance (LOW_VALUE…), and a graph `DEAD` may still be rescued to USED by
+    // the LLM (extra wiring context), so only the USED→DEAD reversal is vetoed.
+    const autoByName = new Map(autoResults.map(a => [a.name, a]));
     const llmByName = new Map(llmSymbols.map(s => [s.name, s]));
     const merged: AxisSymbolResult[] = ctx.task.symbols.map(sym => {
-      return llmByName.get(sym.name) ?? autoResults.find(a => a.name === sym.name)!;
+      const auto = autoByName.get(sym.name);
+      const llm = llmByName.get(sym.name);
+      if (!llm) return auto!;
+      if (!auto) return llm;
+      if (auto.value === 'USED' && llm.value === 'DEAD') return auto;
+      return llm;
     });
 
     return {
