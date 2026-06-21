@@ -4,8 +4,10 @@
 
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } from '../documentation/index.js';
-import type { DocReportStats } from '../documentation/index.js';
+// Import directly from the defining module, not the documentation/ barrel, to
+// avoid a reporting/ ↔ documentation/ ESM import cycle (see doc-divergences.ts).
+import { loadCodeWinsAsStaleReferences, loadPendingConflictsAsDocConflicts } from '../documentation/conflict/doc-stale-reference.js';
+import type { DocReportStats } from '../documentation/reporting/doc-report-section.js';
 
 // ---------------------------------------------------------------------------
 // Re-exports — all public symbols from each domain module.

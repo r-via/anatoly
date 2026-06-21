@@ -5,7 +5,13 @@
 import { readFileSync } from 'node:fs';
 import { runEventLogPath } from '../../utils/run-layout.js';
 import type { ReviewFile, DocDivergence, DocStaleReference, DocConflictFinding } from '../../schemas/review.js';
-import { loadPendingConflictsAsDocConflicts } from '../documentation/index.js';
+// Import directly from the defining module, not the documentation/ barrel: the
+// barrel pulls the whole doc subsystem (generation, conflict detection…), part
+// of which imports back into reporting/, forming an ESM import cycle that left
+// reporting/ barrel exports (renderDivergenceSection, aggregateReviews…)
+// undefined under parallel test collection. The specific module has no such
+// back-edge, so this keeps the dependency acyclic.
+import { loadPendingConflictsAsDocConflicts } from '../documentation/conflict/doc-stale-reference.js';
 
 /** Documentation mode info for report header (FR18). */
 export interface DocModeInfo {
