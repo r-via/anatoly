@@ -9,6 +9,7 @@ import { recognizeWiringEdges } from './wiring/wiring-recognizer.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { resolveAdapter } from './language-adapters.js';
 import { detectPythonSourceRoots } from './python-source-roots.js';
+import { buildGoPackageMap, type GoPackageMap } from './go-module-map.js';
 import {
   detectTsPathAliases,
   resolveAliasCandidates,
@@ -215,6 +216,63 @@ function stripCommentsAndStrings(source: string): string {
  * anchored on a binding whose own usage is decidable from cross-file edges —
  * which keeps the relation sound (never invents a false USED).
  */
+/**
+ * Go same-package cross-file usage edges. Unlike most languages, Go files in
+ * the same directory form one package and reference each other's symbols with
+ * NO import statement, so the import-based graph never connects them — a helper
+ * (often unexported) used only by a sibling file in the same package shows zero
+ * importers and is falsely flagged DEAD. For each package, mark a symbol USED
+ * when any OTHER file in the package mentions its name. Name-based and coarse:
+ * it over-marks USED and can never manufacture a false DEAD, mirroring
+ * {@link buildIntraFileGraph} but spanning the whole package directory.
+ */
+function buildGoIntraPackageEdges(
+  projectRoot: string,
+  tasks: Task[],
+  goPackageMap: GoPackageMap,
+  usages: Map<string, Set<string>>,
+): void {
+  // Declared symbols per audited Go file (exported AND unexported — the
+  // unexported same-package helper is the dominant false-DEAD class).
+  const symbolsByFile = new Map<string, Task['symbols']>();
+  for (const t of tasks) {
+    if (extname(t.file) === '.go' && t.symbols.length > 0) symbolsByFile.set(t.file, t.symbols);
+  }
+  if (symbolsByFile.size === 0) return;
+
+  // Lazily tokenise each file's identifiers (comments/strings stripped) once.
+  const identsByFile = new Map<string, Set<string>>();
+  const identsOf = (file: string): Set<string> => {
+    let set = identsByFile.get(file);
+    if (set) return set;
+    set = new Set<string>();
+    try {
+      const stripped = stripCommentsAndStrings(readFileSync(resolve(projectRoot, file), 'utf-8'));
+      for (const m of stripped.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) set.add(m[0]);
+    } catch {
+      // Unreadable file — contributes no references.
+    }
+    identsByFile.set(file, set);
+    return set;
+  };
+
+  for (const files of goPackageMap.values()) {
+    if (files.length < 2) continue; // single-file package: no cross-file refs
+    for (const consumer of files) {
+      const idents = identsOf(consumer);
+      if (idents.size === 0) continue;
+      for (const declFile of files) {
+        if (declFile === consumer) continue;
+        const syms = symbolsByFile.get(declFile);
+        if (!syms) continue; // e.g. an importer-only test file declares no audited symbols
+        for (const sym of syms) {
+          if (idents.has(sym.name)) addUsageEdge(usages, sym.name, declFile, consumer);
+        }
+      }
+    }
+  }
+}
+
 function buildIntraFileGraph(
   projectRoot: string,
   tasks: Task[],
@@ -543,6 +601,16 @@ export function buildUsageGraph(
   const hasPythonFiles = allImporters.some((t) => extname(t.file) === '.py');
   const pythonSourceRoots = hasPythonFiles ? detectPythonSourceRoots(projectRoot) : undefined;
 
+  // Build a Go import-path → package-files map once so Go imports (full module
+  // paths like `github.com/me/proj/internal/util`) resolve to the `.go` files
+  // that make up each package. Without it every Go import falls through to the
+  // null branch of resolveNonTsImportPath and every exported Go symbol is
+  // falsely flagged DEAD. Skipped when no Go file is in the importer set.
+  const hasGoFiles = allImporters.some((t) => extname(t.file) === '.go');
+  const goPackageMap: GoPackageMap | undefined = hasGoFiles
+    ? buildGoPackageMap(projectRoot, taskFileSet)
+    : undefined;
+
   // Detect TypeScript / Vite path aliases once per build so non-relative
   // specifiers (`@/lib/api` → `client/src/lib/api.ts`) resolve. Without this,
   // alias imports look like bare node_modules specifiers and every aliased
@@ -631,6 +699,25 @@ export function buildUsageGraph(
       }
 
       for (const ref of importRefs) {
+        // Go: an import pulls in a whole package (a directory of `.go` files),
+        // and Go import refs carry no per-symbol granularity. Resolve the
+        // module path to its package files and mark every export of every file
+        // in that package USED. Coarse on purpose — it over-marks USED and can
+        // never manufacture a false DEAD, mirroring the non-TS module-level
+        // expansion below and the un-enriched TS fallback. A stdlib /
+        // third-party import path is absent from goPackageMap → no edge.
+        if (ext === '.go') {
+          const pkgFiles = goPackageMap?.get(ref.source);
+          if (pkgFiles) {
+            for (const pkgFile of pkgFiles) {
+              if (pkgFile === task.file) continue;
+              const exports = allExportsByFile.get(pkgFile);
+              if (exports) for (const sym of exports) addUsageEdge(usages, sym, pkgFile, task.file);
+            }
+          }
+          continue;
+        }
+
         const resolvedFile = resolveNonTsImportPath(ref.source, ref.type, task.file, taskFileSet, rustCrateMap, pythonSourceRoots);
         if (!resolvedFile || resolvedFile === task.file) continue;
 
@@ -680,6 +767,12 @@ export function buildUsageGraph(
     frameworks,
   });
   for (const e of wiringEdges) addUsageEdge(usages, e.symbol, e.sourceFile, e.importer);
+
+  // Go: files in one package (directory) reference each other's symbols with NO
+  // import statement, so the import-based graph never links them and a helper
+  // used only by a sibling file looks DEAD. Add same-package cross-file edges
+  // (name-based, over-marks USED, never a false DEAD).
+  if (goPackageMap) buildGoIntraPackageEdges(projectRoot, tasks, goPackageMap, usages);
 
   const intraFileRefs = buildIntraFileGraph(projectRoot, tasks);
 
@@ -957,6 +1050,21 @@ export function resolveNonExportedSymbolUtility(
   ownFile: string,
 ): { value: 'USED'; confidence: number; detail: string } | null {
   if (sym.exported) return null;
+
+  // Cross-file usages of a NON-exported symbol only ever exist for languages
+  // where unexported = package-scoped, not file-scoped (Go): its sibling files
+  // reference it without an import, recorded as same-package edges in the graph.
+  // For TS/JS/Python an unexported symbol is never importable, so this is always
+  // empty there — no cross-language regression. A direct reference is stronger
+  // evidence than the one-hop in-file relation below.
+  const directRefs = getSymbolUsage(graph, sym.name, ownFile);
+  if (directRefs.length > 0) {
+    return {
+      value: 'USED',
+      confidence: 90,
+      detail: `Referenced by ${directRefs.length} file${directRefs.length > 1 ? 's' : ''} in the same package: ${directRefs.join(', ')}`,
+    };
+  }
 
   const liveRefs = getTransitiveUsage(graph, sym.name, ownFile);
   if (liveRefs.length > 0) {

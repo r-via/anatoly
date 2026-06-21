@@ -231,10 +231,16 @@ export async function collectFiles(
 }
 
 /** Default glob patterns for files that contribute to the usage graph but are
- * not audited. Captures Vitest/Jest/Mocha conventions for JS/TS. */
+ * not audited. Captures Vitest/Jest/Mocha conventions for JS/TS, plus Go
+ * (`*_test.go`) and Python (`*_test.py` / `test_*.py`) test conventions so a
+ * production symbol referenced only from a test (mocks, builders, fixtures) is
+ * not falsely flagged DEAD. */
 const USAGE_IMPORTER_PATTERNS = [
   '**/*.test.{ts,tsx,js,jsx,mts,cts,mjs,cjs}',
   '**/*.spec.{ts,tsx,js,jsx,mts,cts,mjs,cjs}',
+  '**/*_test.go',
+  '**/*_test.py',
+  '**/test_*.py',
 ] as const;
 
 /** Excludes we always keep when scanning importer-only files: vendor / build
@@ -266,7 +272,13 @@ export async function collectUsageImporterFiles(
   // dot-separated body to cover '*.test.ts' / '*.spec.{ts,tsx}' / etc.
   // without a brittle regex over brace syntax. Keep vendor/build excludes
   // via the hard list so we never wander into node_modules.
-  const isTestPattern = (p: string): boolean => p.includes('*.test.') || p.includes('*.spec.');
+  const isTestPattern = (p: string): boolean =>
+    p.includes('*.test.') ||
+    p.includes('*.spec.') ||
+    // Go/Python conventions baked into scan.exclude by scan-autodetect.
+    p.includes('*_test.go') ||
+    p.includes('*_test.py') ||
+    p.includes('test_*');
   const nonTestExcludes = config.scan.exclude.filter((p) => !isTestPattern(p));
   const ignore = [...new Set([...nonTestExcludes, ...USAGE_IMPORTER_HARD_EXCLUDES])];
 

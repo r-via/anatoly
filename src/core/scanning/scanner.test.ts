@@ -7,7 +7,7 @@ import { parseTestConfig } from '../../schemas/test-fixtures.js';
 import { mkdtempSync, writeFileSync, readFileSync, rmSync, mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { parseFile, scanProject, loadCoverage } from './scanner.js';
+import { parseFile, scanProject, loadCoverage, collectUsageImporterFiles } from './scanner.js';
 import type { Config } from '../../schemas/config.js';
 
 describe('parseFile', () => {
@@ -514,5 +514,48 @@ describe('loadCoverage', () => {
     );
     const task = JSON.parse(taskFile);
     expect(task.coverage).toBeUndefined();
+  });
+});
+
+describe('collectUsageImporterFiles', () => {
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = mkdtempSync(join(tmpdir(), 'anatoly-importer-'));
+  });
+
+  afterEach(() => {
+    rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  // Regression guard: Go/Python test files were never collected as usage-graph
+  // importers (USAGE_IMPORTER_PATTERNS was JS/TS-only), so a production symbol
+  // referenced only from a *_test.go showed 0 importers and was falsely DEAD.
+  it('collects Go *_test.go files even when scan.exclude hides them', async () => {
+    mkdirSync(join(tempDir, 'internal', 'app'), { recursive: true });
+    writeFileSync(join(tempDir, 'internal', 'app', 'service.go'), 'package app\n');
+    writeFileSync(join(tempDir, 'internal', 'app', 'service_test.go'), 'package app\n');
+
+    const config = parseTestConfig({
+      scan: { include: ['**/*.go'], exclude: ['**/*_test.go'], respect_gitignore: false },
+    });
+
+    const files = await collectUsageImporterFiles(tempDir, config);
+    expect(files).toContain('internal/app/service_test.go');
+    expect(files).not.toContain('internal/app/service.go');
+  });
+
+  it('collects Python *_test.py / test_*.py importer files', async () => {
+    mkdirSync(join(tempDir, 'pkg'), { recursive: true });
+    writeFileSync(join(tempDir, 'pkg', 'mod_test.py'), 'import pkg.mod\n');
+    writeFileSync(join(tempDir, 'pkg', 'test_mod.py'), 'import pkg.mod\n');
+
+    const config = parseTestConfig({
+      scan: { include: ['**/*.py'], exclude: ['**/*_test.py', '**/test_*.py'], respect_gitignore: false },
+    });
+
+    const files = await collectUsageImporterFiles(tempDir, config);
+    expect(files).toContain('pkg/mod_test.py');
+    expect(files).toContain('pkg/test_mod.py');
   });
 });

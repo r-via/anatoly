@@ -544,6 +544,162 @@ describe('buildUsageGraph — multi-language', () => {
   });
 });
 
+describe('buildUsageGraph — Go package edges', () => {
+  // Regression guard: resolveNonTsImportPath had no `.go` branch, so every Go
+  // import resolved to null and EVERY exported Go symbol was falsely DEAD
+  // (the awf-cli audit: 1943/2214 "0 importers" findings). A Go import is a
+  // full module path; it must resolve through go.mod to the package's files.
+  function goMod(modulePath = 'example.com/m'): void {
+    createFile('go.mod', `module ${modulePath}\n\ngo 1.21\n`);
+  }
+
+  it('resolves a cross-package import via the go.mod module path', () => {
+    goMod();
+    createFile('internal/util/util.go', 'package util\n\nfunc Helper() {}\n');
+    createFile(
+      'cmd/app/main.go',
+      'package main\n\nimport "example.com/m/internal/util"\n\nfunc main() { util.Helper() }\n',
+    );
+
+    const tasks = [
+      { ...makeTask('internal/util/util.go', [{ name: 'Helper', exported: true }]), language: 'go' } as Task,
+      { ...makeTask('cmd/app/main.go', [{ name: 'main', exported: true }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'Helper', 'internal/util/util.go')).toEqual(['cmd/app/main.go']);
+    // And the DEAD predicate flips to USED for the cross-package consumer.
+    expect(
+      resolveExportedSymbolUtility({ name: 'Helper', exported: true }, graph, 'internal/util/util.go')?.value,
+    ).toBe('USED');
+  });
+
+  it('a Go import pulls in the WHOLE package (every file in the directory)', () => {
+    goMod();
+    // Two files form one package `util`; importing it consumes both.
+    createFile('internal/util/a.go', 'package util\n\nfunc Alpha() {}\n');
+    createFile('internal/util/b.go', 'package util\n\nfunc Beta() {}\n');
+    createFile(
+      'cmd/app/main.go',
+      'package main\n\nimport (\n\t"fmt"\n\t"example.com/m/internal/util"\n)\n\nfunc main() { util.Alpha(); fmt.Println(1) }\n',
+    );
+
+    const tasks = [
+      { ...makeTask('internal/util/a.go', [{ name: 'Alpha', exported: true }]), language: 'go' } as Task,
+      { ...makeTask('internal/util/b.go', [{ name: 'Beta', exported: true }]), language: 'go' } as Task,
+      { ...makeTask('cmd/app/main.go', [{ name: 'main', exported: true }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    // Beta is only referenced by main through the package import, never by name.
+    // Coarse package expansion (over-mark USED) still keeps it alive.
+    expect(getSymbolUsage(graph, 'Alpha', 'internal/util/a.go')).toEqual(['cmd/app/main.go']);
+    expect(getSymbolUsage(graph, 'Beta', 'internal/util/b.go')).toEqual(['cmd/app/main.go']);
+  });
+
+  it('stdlib / third-party imports create no edge (genuinely unused stays DEAD)', () => {
+    goMod();
+    createFile('internal/orphan/orphan.go', 'package orphan\n\nfunc Unused() {}\n');
+    createFile('cmd/app/main.go', 'package main\n\nimport "fmt"\n\nfunc main() { fmt.Println(1) }\n');
+
+    const tasks = [
+      { ...makeTask('internal/orphan/orphan.go', [{ name: 'Unused', exported: true }]), language: 'go' } as Task,
+      { ...makeTask('cmd/app/main.go', [{ name: 'main', exported: true }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    // No project file imports the orphan package → no false USED.
+    expect(getSymbolUsage(graph, 'Unused', 'internal/orphan/orphan.go')).toEqual([]);
+    expect(
+      resolveExportedSymbolUtility({ name: 'Unused', exported: true }, graph, 'internal/orphan/orphan.go')?.value,
+    ).toBe('DEAD');
+  });
+
+  it('a symbol imported only from a *_test.go (importer-only) is USED, not DEAD', () => {
+    goMod();
+    // testutil/mocks is consumed only by tests; tests are excluded from the
+    // audit set and fed as importer-only tasks. Without the .go resolver +
+    // *_test.go importer feed, MockRepo would be falsely DEAD.
+    createFile('internal/testutil/mocks/mocks.go', 'package mocks\n\nfunc NewMockRepo() {}\n');
+    createFile(
+      'internal/app/service_test.go',
+      'package app\n\nimport "example.com/m/internal/testutil/mocks"\n\nfunc TestX() { mocks.NewMockRepo() }\n',
+    );
+
+    const tasks = [
+      { ...makeTask('internal/testutil/mocks/mocks.go', [{ name: 'NewMockRepo', exported: true }]), language: 'go' } as Task,
+    ];
+    const importerOnly = [
+      { ...makeTask('internal/app/service_test.go', [{ name: 'TestX', exported: true }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks, importerOnly);
+    expect(getSymbolUsage(graph, 'NewMockRepo', 'internal/testutil/mocks/mocks.go')).toEqual([
+      'internal/app/service_test.go',
+    ]);
+    expect(
+      resolveExportedSymbolUtility({ name: 'NewMockRepo', exported: true }, graph, 'internal/testutil/mocks/mocks.go')?.value,
+    ).toBe('USED');
+  });
+
+  it('keeps a same-package helper alive when a sibling file references it (no import)', () => {
+    goMod();
+    // Go files in one directory share a package and call each other with NO
+    // import statement. `helper` (unexported) is used only by sibling caller.go.
+    createFile('internal/svc/helper.go', 'package svc\n\nfunc helper() int { return 1 }\n');
+    createFile('internal/svc/caller.go', 'package svc\n\nfunc Run() int { return helper() }\n');
+
+    const tasks = [
+      { ...makeTask('internal/svc/helper.go', [{ name: 'helper', exported: false }]), language: 'go' } as Task,
+      { ...makeTask('internal/svc/caller.go', [{ name: 'Run', exported: true }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    // Same-package cross-file edge: helper is consumed by caller.go.
+    expect(getSymbolUsage(graph, 'helper', 'internal/svc/helper.go')).toEqual(['internal/svc/caller.go']);
+    // And the NON-exported utility verdict must read that edge → USED, not DEAD.
+    // (Go unexported = package-scoped; the evaluator must not treat it as file-scoped.)
+    expect(
+      resolveNonExportedSymbolUtility({ name: 'helper', exported: false }, graph, 'internal/svc/helper.go')?.value,
+    ).toBe('USED');
+  });
+
+  it('an exported symbol used only within its own package is not DEAD', () => {
+    goMod();
+    createFile('internal/svc/api.go', 'package svc\n\nfunc Exported() int { return 2 }\n');
+    createFile('internal/svc/use.go', 'package svc\n\nfunc internalUse() int { return Exported() }\n');
+
+    const tasks = [
+      { ...makeTask('internal/svc/api.go', [{ name: 'Exported', exported: true }]), language: 'go' } as Task,
+      { ...makeTask('internal/svc/use.go', [{ name: 'internalUse', exported: false }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(
+      resolveExportedSymbolUtility({ name: 'Exported', exported: true }, graph, 'internal/svc/api.go')?.value,
+    ).toBe('USED');
+  });
+
+  it('resolves package paths under a nested go.mod (multi-module layout)', () => {
+    goMod('example.com/root');
+    // A nested module declares its own path; files beneath it key off it.
+    createFile('sub/go.mod', 'module example.com/sub\n\ngo 1.21\n');
+    createFile('sub/pkg/lib.go', 'package pkg\n\nfunc Exported() {}\n');
+    createFile(
+      'sub/cmd/main.go',
+      'package main\n\nimport "example.com/sub/pkg"\n\nfunc main() { pkg.Exported() }\n',
+    );
+
+    const tasks = [
+      { ...makeTask('sub/pkg/lib.go', [{ name: 'Exported', exported: true }]), language: 'go' } as Task,
+      { ...makeTask('sub/cmd/main.go', [{ name: 'main', exported: true }]), language: 'go' } as Task,
+    ];
+
+    const graph = buildUsageGraph(testDir, tasks);
+    expect(getSymbolUsage(graph, 'Exported', 'sub/pkg/lib.go')).toEqual(['sub/cmd/main.go']);
+  });
+});
+
 describe('buildUsageGraph — TypeScript path aliases', () => {
   it('resolves an aliased import (@/*) so the target is not falsely DEAD', () => {
     createFile('tsconfig.json', JSON.stringify({
