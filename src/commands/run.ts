@@ -147,6 +147,13 @@ export interface RunContext {
   axesFilter?: AxisId[];
   /** Dry-run mode — show what would happen without executing reviews */
   dryRun: boolean;
+  /** True when this invocation just generated `.anatoly.yml` via the first-run
+   *  init delegation. The init wizard already walked the user through Telegram,
+   *  scope, and RAG tier, so the setup phase suppresses the post-setup hints
+   *  (no-telegram-bot, fixtures-in-scope) for this run to avoid re-asking the
+   *  same questions — and to avoid the hint runner spawning a subprocess that
+   *  would `process.exit` and abort the very first audit. */
+  wasFirstRun: boolean;
   /** Badge config for post-report injection */
   badge: { enabled: boolean; verdict: boolean; link?: string };
   /** Pipeline display state — created after setup, shared across rag/review/report */
@@ -712,6 +719,7 @@ export function registerRunCommand(program: Command): void {
         timeline: [],
         axesFilter,
         dryRun,
+        wasFirstRun,
         badge: {
           enabled: cmdOpts.badge !== false && config.badge.enabled,
           verdict: cmdOpts.badgeVerdict ?? config.badge.verdict,

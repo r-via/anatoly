@@ -416,7 +416,11 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
 
   // Surface actionable hints (missing init, lite RAG on capable hardware, …) before the summary.
   // Skip in dry-run / non-TTY / plain mode where interactive prompts make no sense.
-  if (!ctx.dryRun && !ctx.plain && process.stdin.isTTY) {
+  // Also skip on the first run: `run` just delegated to the init wizard, which
+  // already asked about Telegram and scope, so re-surfacing those hints here is
+  // redundant — and choosing one spawns a subprocess that `process.exit`s,
+  // aborting the first audit before it starts.
+  if (!ctx.dryRun && !ctx.plain && !ctx.wasFirstRun && process.stdin.isTTY) {
     await runHints({
       projectRoot: ctx.projectRoot,
       ragEnabled: ctx.enableRag,

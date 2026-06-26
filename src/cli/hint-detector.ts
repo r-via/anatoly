@@ -138,9 +138,14 @@ function isCancelled(value: unknown): value is symbol {
  * Show each non-dismissed hint and act on the user's choice.
  *
  * For each hint the user picks one of:
- *   - run the suggested command (spawns the CLI and exits the current run)
+ *   - run the suggested command (spawns the CLI, then resumes this run)
  *   - discard and continue (saves the dismissal so it won't fire again)
  *   - quit (aborts the current run)
+ *
+ * Running a command never aborts the audit: the suggested command (e.g.
+ * `init --notifications`) is a config tweak whose result applies on the next
+ * run, so once it returns the loop continues to the remaining hints and the
+ * current run proceeds. Only the explicit "Quit" choice exits.
  */
 export async function runHints(ctx: HintContext): Promise<void> {
   const dismissed = loadDismissedHints(ctx.projectRoot);
@@ -173,12 +178,18 @@ export async function runHints(ctx: HintContext): Promise<void> {
         stdio: 'inherit',
       });
       // spawnSync sets `error` (and leaves `status` null) when the child fails
-      // to spawn; `status ?? 0` would mask that as success. Surface it.
+      // to spawn; `status ?? 0` would mask that as success. Surface it but keep
+      // going — a failed config tweak shouldn't abort the audit either.
       if (result.error) {
         p.log.error(`Failed to launch command: ${result.error.message}`);
-        process.exit(1);
+      } else if (result.status && result.status !== 0) {
+        p.log.warn(`Command exited with status ${result.status} — continuing the run.`);
+      } else {
+        p.log.info('Done — changes apply on the next run. Continuing this run.');
       }
-      process.exit(result.status ?? 0);
+      // Resume the audit rather than exiting: the suggested command only adjusts
+      // config for future runs, so there's no reason to abort the current one.
+      continue;
     }
   }
 }

@@ -2,14 +2,34 @@
 // Copyright (c) 2025-present Rémi Viau
 // See LICENSE and COMMERCIAL.md for licensing details.
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
 import { mkdtempSync, rmSync, writeFileSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+// Hoisted controls for the @clack/prompts + spawnSync mocks that runHints uses.
+// (vi.mock factories run before the module body, so their state must be hoisted.)
+const mocks = vi.hoisted(() => ({
+  selectValue: { current: 'discard' as unknown },
+  spawnSync: vi.fn(() => ({ status: 0 }) as { status?: number | null; error?: Error }),
+  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn(), success: vi.fn() },
+}));
+
+vi.mock('@clack/prompts', () => ({
+  note: vi.fn(),
+  cancel: vi.fn(),
+  select: vi.fn(async () => mocks.selectValue.current),
+  isCancel: (v: unknown) => typeof v === 'symbol',
+  log: mocks.log,
+}));
+
+vi.mock('node:child_process', () => ({ spawnSync: mocks.spawnSync }));
+
 import {
   detectHints,
   loadDismissedHints,
   saveDismissedHint,
+  runHints,
 } from './hint-detector.js';
 
 describe('detectHints', () => {
@@ -115,6 +135,48 @@ describe('hint dismissal persistence', () => {
     saveDismissedHint(projectRoot, 'no-init');
     saveDismissedHint(projectRoot, 'no-init');
     expect([...loadDismissedHints(projectRoot)]).toEqual(['no-init']);
+  });
+});
+
+describe('runHints — running a command continues the run', () => {
+  let projectRoot: string;
+  let exitSpy: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    projectRoot = mkdtempSync(join(tmpdir(), 'anatoly-hints-'));
+    mocks.spawnSync.mockClear();
+    mocks.log.error.mockClear();
+    mocks.selectValue.current = 'discard';
+    exitSpy = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+  });
+
+  afterEach(() => {
+    rmSync(projectRoot, { recursive: true, force: true });
+    exitSpy.mockRestore();
+  });
+
+  it('spawns the suggested command then resumes without exiting', async () => {
+    // Telegram disabled → the no-telegram-bot hint (with an `init --notifications`
+    // command) fires; choosing "run" must launch it and then continue the run.
+    mocks.selectValue.current = 'run';
+    mocks.spawnSync.mockReturnValue({ status: 0 });
+
+    await runHints({ projectRoot, ragEnabled: false, telegramEnabled: false });
+
+    expect(mocks.spawnSync).toHaveBeenCalledTimes(1);
+    const argv = (mocks.spawnSync.mock.calls[0] as unknown as unknown[])[1] as string[];
+    expect(argv).toEqual(expect.arrayContaining(['init', '--notifications']));
+    expect(exitSpy).not.toHaveBeenCalled();
+  });
+
+  it('continues the run even when the spawned command fails to launch', async () => {
+    mocks.selectValue.current = 'run';
+    mocks.spawnSync.mockReturnValue({ error: new Error('ENOENT') });
+
+    await runHints({ projectRoot, ragEnabled: false, telegramEnabled: false });
+
+    expect(exitSpy).not.toHaveBeenCalled();
+    expect(mocks.log.error).toHaveBeenCalledTimes(1);
   });
 });
 
