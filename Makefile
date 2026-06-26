@@ -60,6 +60,12 @@ install: install-deps install-global
 	 if [ -n "$$bin" ]; then printf '  $(D)bin$(N)      %s\n' "$$bin"; \
 	 else printf '  $(D)bin$(N)      $(R)not in PATH$(N)\n'; fi
 	@printf '  $(D)try$(N)      $(B)anatoly --version$(N)\n\n'
+	@# Record the commit the global bin was just built from. `make update`
+	@# reads this to decide whether the installed binary is actually current:
+	@# HEAD being in sync is NOT enough (a prior pull may have moved HEAD
+	@# without a completed install, leaving dist/ + the global bin on an older
+	@# commit), so the up-to-date short-circuit also requires this stamp == HEAD.
+	@git rev-parse HEAD > dist/.installed-commit 2>/dev/null || true
 
 install-deps:
 	@printf '$(B)[1/2]$(N) $(C)installing local dependencies (this also runs `prepare` → tsup → dist/)$(N)\n'
@@ -84,7 +90,7 @@ update:
 	   exit 1; \
 	 fi; \
 	 before=$$(git rev-parse HEAD); \
-	 if [ "$$before" = "$$target" ] && [ -f dist/index.js ] && [ -d node_modules ]; then \
+	 if [ "$$before" = "$$target" ] && [ -f dist/index.js ] && [ -d node_modules ] && [ "$$(cat dist/.installed-commit 2>/dev/null)" = "$$target" ]; then \
 	   printf '$(G)  ✔$(N) already on $(B)$(COMMIT)$(N) — nothing to reinstall\n'; \
 	   exit 0; \
 	 fi; \
@@ -121,12 +127,12 @@ update:
 	   exit 1; \
 	 fi; \
 	 after=$$(git rev-parse HEAD); \
-	 if [ "$$before" = "$$after" ] && [ -f dist/index.js ] && [ -d node_modules ]; then \
+	 if [ "$$before" = "$$after" ] && [ -f dist/index.js ] && [ -d node_modules ] && [ "$$(cat dist/.installed-commit 2>/dev/null)" = "$$after" ]; then \
 	   printf '$(G)  ✔$(N) already up to date — nothing to reinstall\n'; \
 	   exit 0; \
 	 fi; \
 	 if [ "$$before" = "$$after" ]; then \
-	   printf '$(Y)  !$(N) HEAD unchanged but build missing/stale — reinstalling\n'; \
+	   printf '$(Y)  !$(N) HEAD unchanged but build/install stale — reinstalling\n'; \
 	 fi; \
 	 printf '\n$(B)→$(N) $(C)now on:$(N)\n'; \
 	 git --no-pager log --oneline -1 | sed 's/^/  /'; \
