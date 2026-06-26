@@ -5,13 +5,87 @@
 import type { Command } from 'commander';
 import * as p from '@clack/prompts';
 import { resolve } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, appendFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadConfig } from '../utils/config-loader.js';
 import { resolveUsernameToChatId } from '../core/notifications/index.js';
 import { escapeMarkdownV2 } from '../core/notifications/telegram.js';
 
 function isCancelled(value: unknown): value is symbol {
   return p.isCancel(value);
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Upsert a `KEY=value` assignment in `.env` file content.
+ *
+ * Replaces an existing *active* assignment (tolerating leading whitespace) and
+ * otherwise appends one. A plain `content.includes(key)` check is deliberately
+ * avoided: it also matches a commented placeholder (`# KEY=...`), after which
+ * the anchored replace silently no-ops and the value is never written — the
+ * reported "bot token never inserted" symptom.
+ *
+ * @param content current file content, or null/empty when the file is absent.
+ */
+export function upsertEnvVar(content: string | null, key: string, value: string): string {
+  const line = `${key}=${value}`;
+  if (!content) return `${line}\n`;
+  // Active assignment only: a leading `#` (commented) must NOT match, so we
+  // anchor on optional spaces/tabs then the key, never a hash.
+  const assignmentRe = new RegExp(`^[ \\t]*${escapeRegExp(key)}=.*$`, 'm');
+  if (assignmentRe.test(content)) return content.replace(assignmentRe, line);
+  return content.endsWith('\n') ? `${content}${line}\n` : `${content}\n${line}\n`;
+}
+
+/**
+ * Insert or repair the `notifications.telegram` block in `.anatoly.yml` content.
+ *
+ * Handles every state of the existing config:
+ *  - an active `notifications:` block → replaced in place;
+ *  - the commented first-run template (`# notifications:` + `#   ...` children)
+ *    → replaced with an active block;
+ *  - none → appended.
+ *
+ * Matching the commented form is essential. The previous writer keyed off a
+ * bare `includes('notifications:')` (true for the commented template) and a
+ * mid-line regex that left the `# ` prefix on the header while uncommenting the
+ * body, producing invalid YAML (`# notifications:` above an uncommented
+ * `  telegram:`). The loader then never saw `telegram.enabled`, so the setup
+ * hint re-prompted on every run. The block regex below matches the header in
+ * either form plus its body (indented YAML and/or `#   ...` children), so it
+ * also repairs that corrupted half-decommented state.
+ *
+ * @param content current file content, or null/empty when the file is absent.
+ */
+export function patchNotificationsConfig(
+  content: string | null,
+  username: string,
+  botTokenEnv = 'ANATOLY_TELEGRAM_BOT_TOKEN',
+): string {
+  const block =
+    `notifications:\n`
+    + `  telegram:\n`
+    + `    enabled: true\n`
+    + `    username: "${username}"\n`
+    + `    bot_token_env: ${botTokenEnv}\n`;
+  if (!content) return block;
+  // Body = the header line plus following indented YAML lines, deeply-commented
+  // (`#   ...`) children, and blank lines — bounded by the next top-level key or
+  // a `# ---- section ----` header (which has a single space after `#`, so it is
+  // never mistaken for a `#   ` child needing >=2). Consuming the blanks and the
+  // leftover commented children also cleans up the corrupted half-decommented
+  // template in the same pass, so the stale `#   bot_token_env: ...` line does
+  // not linger beside the new active block.
+  const blockRe =
+    /^[ \t]*#?[ \t]*notifications:[^\n]*\n(?:[ \t]+[^\n]*\n|[ \t]*#[ \t]{2,}[^\n]*\n|[ \t]*\n)*/m;
+  if (blockRe.test(content)) {
+    // Re-add one blank line after the block to keep section separation, then
+    // collapse any trailing blank run at EOF back to a single newline.
+    return content.replace(blockRe, `${block}\n`).replace(/\n{2,}$/, '\n');
+  }
+  return `${content.replace(/\s*$/, '')}\n\n${block}`;
 }
 
 async function waitForBotMessage(botToken: string, username: string, maxAttempts = 30): Promise<string | null> {
@@ -137,20 +211,11 @@ export async function runTelegramSetup(
       p.log.info('Set the bot profile photo manually:');
       p.log.info('  Send /setuserpic to @BotFather, select your bot, and upload the logo.');
 
-      // Step 2: Save token to .env
+      // Step 2: Save token to .env (upsert: replace an active assignment, else
+      // append — never silently skip on a commented placeholder).
       const envPath = resolve(projectRoot, '.env');
-      const envLine = `ANATOLY_TELEGRAM_BOT_TOKEN=${token}`;
-      if (existsSync(envPath)) {
-        const envContent = readFileSync(envPath, 'utf-8');
-        if (envContent.includes('ANATOLY_TELEGRAM_BOT_TOKEN')) {
-          const updated = envContent.replace(/^ANATOLY_TELEGRAM_BOT_TOKEN=.*$/m, envLine);
-          writeFileSync(envPath, updated);
-        } else {
-          appendFileSync(envPath, `\n${envLine}\n`);
-        }
-      } else {
-        writeFileSync(envPath, `${envLine}\n`);
-      }
+      const envContent = existsSync(envPath) ? readFileSync(envPath, 'utf-8') : null;
+      writeFileSync(envPath, upsertEnvVar(envContent, 'ANATOLY_TELEGRAM_BOT_TOKEN', token));
       p.log.success('Token saved to .env');
 
       // Warn if .env not gitignored
@@ -202,20 +267,8 @@ export async function runTelegramSetup(
       // into the generated yaml instead.
       if (opts.writeConfig) {
         const configPath = resolve(projectRoot, '.anatoly.yml');
-        if (existsSync(configPath)) {
-          let configContent = readFileSync(configPath, 'utf-8');
-          if (configContent.includes('notifications:')) {
-            configContent = configContent.replace(
-              /notifications:[\s\S]*?(?=\n\S|\n*$)/,
-              `notifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`,
-            );
-          } else {
-            configContent += `\nnotifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`;
-          }
-          writeFileSync(configPath, configContent);
-        } else {
-          writeFileSync(configPath, `notifications:\n  telegram:\n    enabled: true\n    username: "${username}"\n`);
-        }
+        const configContent = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
+        writeFileSync(configPath, patchNotificationsConfig(configContent, username));
         p.log.success('.anatoly.yml updated');
       }
 
