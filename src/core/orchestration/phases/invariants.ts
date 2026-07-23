@@ -40,6 +40,7 @@ import { resolveAxisCache, writeProjectReviewAtHash } from '../../run/index.js';
 import { buildFunctionId } from '../../../rag/index.js';
 import { computeContentHash } from '../../../utils/cache.js';
 import { runSingleTurnQuery } from '../../evaluation/index.js';
+import { isUsageLimitError, usageLimitResetAt } from '../../../utils/rate-limiter.js';
 import { loadPendingConflictsAsDocConflicts } from '../../documentation/index.js';
 import { recordLlmCost } from '../cost.js';
 import type { ReviewFile, SymbolReview, InvariantFinding } from '../../../schemas/review.js';
@@ -317,8 +318,13 @@ export async function runInvariantsPhase(
   const judged: Array<{ file: string; symbol: string; finding: InvariantFinding }> = [];
   const conversationDir = undefined; // single-turn dumps optional; omit for this internal phase
   let aborted = false;
+  // Set (with the reset time) if a call hits the subscription usage limit.
+  // A rate-limit is transient/recoverable — never a per-batch judge failure —
+  // so we stop issuing further doomed calls and mark the phase incomplete so
+  // the run is resumable, instead of silently skipping it.
+  let rateLimitedAt: number | undefined;
   for (const batch of batchCandidates(candidates, JUDGE_BATCH_SIZE)) {
-    if (ctx.interrupted) { aborted = true; break; }
+    if (ctx.interrupted || aborted) { aborted = true; break; }
     const abortController = new AbortController();
     ctx.activeAborts.add(abortController);
     try {
@@ -370,6 +376,10 @@ export async function runInvariantsPhase(
         });
       }
     } catch (err) {
+      // Subscription usage limit: transient and recoverable. Stop hammering a
+      // capped quota, record the phase as incomplete (→ resumable run), and
+      // break — do NOT swallow it as a per-batch judge failure.
+      if (isUsageLimitError(err)) { rateLimitedAt = usageLimitResetAt(err) ?? Date.now(); aborted = true; break; }
       // A judge failure is non-fatal: this is an additive, opt-in finding
       // source. Log and continue (never crash the run for an invariant).
       log.warn({ err: err instanceof Error ? err.message : String(err) }, 'invariants: judge batch failed — skipping batch');
@@ -385,7 +395,9 @@ export async function runInvariantsPhase(
   // is a false positive under the bench's bipartite matching).
   const numericByFile = new Map<string, { file: string; symbol: string; finding: InvariantFinding }>();
   for (const bundle of numericBundles) {
-    if (ctx.interrupted) { aborted = true; break; }
+    // `aborted` is also set when the judge loop above hit the usage limit —
+    // skip the numeric judge entirely rather than issue more doomed calls.
+    if (ctx.interrupted || aborted) { aborted = true; break; }
     const abortController = new AbortController();
     ctx.activeAborts.add(abortController);
     try {
@@ -439,6 +451,7 @@ export async function runInvariantsPhase(
         }
       }
     } catch (err) {
+      if (isUsageLimitError(err)) { rateLimitedAt = usageLimitResetAt(err) ?? Date.now(); aborted = true; break; }
       log.warn({ err: err instanceof Error ? err.message : String(err) }, 'invariants: numeric judge failed — skipping bundle');
     } finally {
       ctx.activeAborts.delete(abortController);
@@ -489,6 +502,11 @@ export async function runInvariantsPhase(
       writeReviewOutput(ctx.projectRoot, rf, ctx.runDir);
     }
     if (fileFresh.get(r.file)) continue; // already fresh — judged this content before
+    // Rate-limited: the phase broke out before judging every candidate, so do
+    // NOT stamp fresh 'invariants' cache keys — that would make a resume treat
+    // un-judged files as already done and skip them. Findings produced before
+    // the limit are still written back above; only the freshness key is held.
+    if (rateLimitedAt !== undefined) continue;
     if (!ctx.noCache) {
       try {
         writeProjectReviewAtHash(
@@ -502,9 +520,19 @@ export async function runInvariantsPhase(
     }
   }
 
-  const detail = aborted ? `${written} findings (interrupted)` : (written > 0 ? `${written} findings` : 'clean');
+  // A usage-limit hit leaves the phase incomplete: mark it on the run so the
+  // final status carries `incompletePhases` and `anatoly run` proposes a
+  // resume (which re-judges with a fresh quota) instead of finishing silently.
+  if (rateLimitedAt !== undefined) {
+    ctx.incompletePhases.add('invariants');
+    ctx.rateLimitResetAt = Math.max(ctx.rateLimitResetAt ?? 0, rateLimitedAt);
+  }
+
+  const detail = rateLimitedAt !== undefined
+    ? `${written} findings (rate-limited — incomplete)`
+    : aborted ? `${written} findings (interrupted)` : (written > 0 ? `${written} findings` : 'clean');
   ctx.pipelineState?.completeTask('invariants', detail);
-  log.info({ candidates: candidates.length, confirmed: written }, 'invariants phase complete');
+  log.info({ candidates: candidates.length, confirmed: written, rateLimited: rateLimitedAt !== undefined }, 'invariants phase complete');
 }
 
 // ---------------------------------------------------------------------------

@@ -7,6 +7,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { anatolyPath } from '../../../utils/anatoly-paths.js';
 import { writeCacheWithMeta, loadCacheWithMeta } from '../../../utils/cache-meta.js';
 import { atomicWriteJson } from '../../../utils/cache.js';
+import { isUsageLimitError, usageLimitResetAt } from '../../../utils/rate-limiter.js';
 import type { ReviewFile } from '../../../schemas/review.js';
 import type { EscalatedFinding } from './tier2.js';
 import {
@@ -111,6 +112,9 @@ export interface Tier3Result {
   totalCacheReadTokens: number;
   totalCacheCreationTokens: number;
   budgetExceeded: boolean;
+  /** Set (to the reset time, epoch ms) when a shard hit the subscription usage
+   *  limit. The loop stops early and the caller marks the run resumable. */
+  rateLimitResetAt?: number;
   shardResults: ShardResult[];
   /** ReviewFiles updated by tier 3 investigation. */
   updatedReviews: Map<string, ReviewFile>;
@@ -297,6 +301,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
   let totalCostUsd = 0;
   let totalDurationMs = 0;
   let budgetExceeded = false;
+  let rateLimitResetAt: number | undefined;
 
   // Load refinement cache — skip findings already investigated in a previous run
   const cache = loadRefinementCache(ctx.projectRoot);
@@ -434,6 +439,13 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
       };
       shardResults.push(failed);
       ctx.onShardDone?.(shardResults.length, shards.length, failed);
+      // Subscription usage limit: transient/recoverable. Stop investigating
+      // further shards against a capped quota and surface the reset time so
+      // the caller marks the run resumable (mirrors the budget-exceeded break).
+      // `isUsageLimitError` covers both the raw standby and the exhausted form
+      // that `router.agenticQuery`'s retryWithBackoff converts a far-future
+      // reset into (the actual observed case).
+      if (isUsageLimitError(err)) { rateLimitResetAt = usageLimitResetAt(err) ?? Date.now(); break; }
     }
   }
 
@@ -467,6 +479,7 @@ export async function runTier3(shards: Shard[], ctx: Tier3Context): Promise<Tier
     totalCacheReadTokens,
     totalCacheCreationTokens,
     budgetExceeded,
+    ...(rateLimitResetAt !== undefined ? { rateLimitResetAt } : {}),
     shardResults,
     updatedReviews,
   };

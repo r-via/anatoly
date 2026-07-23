@@ -18,6 +18,7 @@ import type { ReviewFile, SymbolReview, InvariantFinding } from '../../../schema
 import type { FunctionCard, SimilarityResult } from '../../../rag/index.js';
 import type { RagContext, Handoff } from '../handoff.js';
 import type { RunContext } from '../../../commands/run.js';
+import { RateLimitStandbyError } from '../../../utils/rate-limiter.js';
 
 // ---------------------------------------------------------------------------
 // Hermetic tests for the invariants phase consumer paths: the report fold
@@ -205,6 +206,7 @@ function makeCtx(overrides: Partial<RunContext> = {}): RunContext {
     interrupted: false,
     invariants: true,
     activeAborts: new Set<AbortController>(),
+    incompletePhases: new Set<string>(),
     pipelineState: undefined,
     router: { calls: [] } as unknown as RunContext['router'],
     // Cost rollup buckets recordLlmCost reconciles into (see cost.ts).
@@ -420,6 +422,51 @@ describe('runInvariantsPhase (no-op safety + de-dup + cache)', () => {
       expect(cacheWriteSpy).not.toHaveBeenCalled();
       // Prior finding is preserved untouched.
       expect(reviews[0]!.symbols[0]!.invariant_findings).toEqual([existing]);
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it('marks the phase incomplete (not silently done) and skips cache re-keying when the judge hits the usage limit', async () => {
+    const aSym = sym({ name: 'computePayout', line_start: 1, line_end: 3 });
+    const bSym = sym({ name: 'computePayoutLegacy', line_start: 1, line_end: 3 });
+    const reviews = [review('src/engine.ts', [aSym]), review('src/legacy.ts', [bSym])];
+    vi.spyOn(reporting, 'loadReviews').mockReturnValue(reviews);
+
+    const store = fakeVectorStore({
+      cardsByFile: {
+        'src/engine.ts': [card('src/engine.ts', 'computePayout')],
+        'src/legacy.ts': [card('src/legacy.ts', 'computePayoutLegacy')],
+      },
+      neighbours: [{ card: card('src/legacy.ts', 'computePayoutLegacy'), score: 0.95 }],
+    });
+
+    // The judge call is rejected by the subscription usage limit.
+    const resetsAtMs = Date.now() + 2 * 60 * 60 * 1000;
+    const judge = vi.spyOn(evaluation, 'runSingleTurnQuery').mockRejectedValue(new RateLimitStandbyError(resetsAtMs));
+    const writeSpy = vi.spyOn(reporting, 'writeReviewOutput').mockReturnValue({ jsonPath: '', mdPath: '' });
+    const cacheWriteSpy = vi.spyOn(runCache, 'writeProjectReviewAtHash').mockReturnValue(undefined as unknown as ReturnType<typeof runCache.writeProjectReviewAtHash>);
+
+    const tmp = mkdtempSync(join(tmpdir(), 'invariants-ratelimit-'));
+    try {
+      mkdirSync(join(tmp, 'src'), { recursive: true });
+      writeFileSync(join(tmp, 'src/engine.ts'), 'function computePayout(){\n  return bet * 95;\n}\n');
+      writeFileSync(join(tmp, 'src/legacy.ts'), 'function computePayoutLegacy(){\n  return bet * 105;\n}\n');
+      vi.spyOn(worktree, 'getEffectiveSourceRoot').mockReturnValue(tmp);
+
+      const ctx = makeCtx({ projectRoot: tmp, sourceRoot: tmp });
+      await runInvariantsPhase(ctx, emptyHandoff, { vectorStore: store, ragEnabled: true });
+
+      // The judge was attempted (candidate surfaced) and rejected — but the
+      // run did NOT crash: the phase returns and records the incompleteness.
+      expect(judge).toHaveBeenCalled();
+      expect([...ctx.incompletePhases]).toContain('invariants');
+      expect(ctx.rateLimitResetAt).toBe(resetsAtMs);
+      // No fresh 'invariants' cache key written — otherwise a resume would treat
+      // the un-judged files as done and skip re-judging them.
+      expect(cacheWriteSpy).not.toHaveBeenCalled();
+      // No findings were produced, so nothing was written back either.
+      expect(writeSpy).not.toHaveBeenCalled();
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

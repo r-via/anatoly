@@ -207,5 +207,41 @@ describe('run-status', () => {
       const r = detectResumableRun(tempDir);
       expect(r?.runId).toBe('r2');
     });
+
+    it('flags a DONE run that skipped a tail phase on a usage limit (no pending files)', () => {
+      seed('r1', makeStatus({ status: 'done', incompletePhases: ['invariants', 'refinement'] }), { 'a.ts': 'DONE', 'b.ts': 'CACHED' });
+      const r = detectResumableRun(tempDir);
+      expect(r).toEqual({
+        runId: 'r1',
+        state: 'incomplete',
+        pending: 0,
+        done: 2,
+        incompletePhases: ['invariants', 'refinement'],
+      });
+    });
+
+    it('flags an incomplete-phases run even when progress.json is absent', () => {
+      const runDir = join(tempDir, '.anatoly', 'runs', 'r1');
+      writeRunStatus(runDir, { ...makeStatus({ status: 'done', incompletePhases: ['refinement'] }), runId: 'r1' });
+      // no progress.json written — the resume re-runs the phase, not files
+      const r = detectResumableRun(tempDir);
+      expect(r?.state).toBe('incomplete');
+      expect(r?.pending).toBe(0);
+      expect(r?.incompletePhases).toEqual(['refinement']);
+    });
+
+    it('keeps the failure state (not incomplete) when a failed run ALSO has incompletePhases', () => {
+      seed('r1', makeStatus({ status: 'failed', incompletePhases: ['invariants'] }), { 'a.ts': 'DONE' });
+      const r = detectResumableRun(tempDir);
+      // failed/crashed takes priority over the softer 'incomplete' label, but
+      // the run is still resumable (pending===0 guard relaxed by the phases).
+      expect(r?.state).toBe('failed');
+      expect(r?.incompletePhases).toEqual(['invariants']);
+    });
+
+    it('does NOT flag a DONE run with an empty incompletePhases array', () => {
+      seed('r1', makeStatus({ status: 'done', incompletePhases: [] }), { 'a.ts': 'DONE' });
+      expect(detectResumableRun(tempDir)).toBeUndefined();
+    });
   });
 });

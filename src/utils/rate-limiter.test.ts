@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { describe, it, expect, vi } from 'vitest';
-import { retryWithBackoff, isRateLimitError, calculateBackoff, RateLimitStandbyError, isRateLimitStandbyError } from './rate-limiter.js';
+import { retryWithBackoff, isRateLimitError, calculateBackoff, RateLimitStandbyError, isRateLimitStandbyError, RateLimitExhaustedError, isRateLimitExhaustedError, isUsageLimitError, usageLimitResetAt } from './rate-limiter.js';
 import { AnatolyError, ERROR_CODES } from './errors.js';
 
 describe('isRateLimitError', () => {
@@ -170,15 +170,21 @@ describe('retryWithBackoff', () => {
     const standbyErr = new RateLimitStandbyError(resetsAtMs);
     const fn = vi.fn().mockRejectedValue(standbyErr);
 
-    await expect(
-      retryWithBackoff(fn, {
-        maxRetries: 5,
-        baseDelayMs: 10,
-        maxDelayMs: 100,
-        jitterFactor: 0,
-        filePath: 'test.ts',
-      }),
-    ).rejects.toThrow(/quota exhausted.*run aborted/i);
+    const caught = await retryWithBackoff(fn, {
+      maxRetries: 5,
+      baseDelayMs: 10,
+      maxDelayMs: 100,
+      jitterFactor: 0,
+      filePath: 'test.ts',
+    }).catch((e) => e);
+    expect(caught).toBeInstanceOf(RateLimitExhaustedError);
+    expect((caught as Error).message).toMatch(/quota exhausted.*run aborted/i);
+    // The converted error preserves the reset time so tail phases can record
+    // the run as resumable rather than treating it as an opaque failure.
+    expect((caught as RateLimitExhaustedError).resetsAtMs).toBe(resetsAtMs);
+    expect((caught as RateLimitExhaustedError).recoverable).toBe(false);
+    expect(isUsageLimitError(caught)).toBe(true);
+    expect(usageLimitResetAt(caught)).toBe(resetsAtMs);
     // Should have called fn exactly once — no silent multi-hour sleep, no retry
     expect(fn).toHaveBeenCalledTimes(1);
   });
@@ -258,5 +264,34 @@ describe('RateLimitStandbyError', () => {
     const err = new RateLimitStandbyError(Date.now());
     expect(isRateLimitStandbyError(err)).toBe(true);
     expect(isRateLimitStandbyError(new Error('nope'))).toBe(false);
+  });
+});
+
+describe('RateLimitExhaustedError + usage-limit predicates', () => {
+  it('is a non-recoverable AnatolyError carrying the reset time', () => {
+    const ts = Date.now() + 3600_000;
+    const err = new RateLimitExhaustedError(ts, 'quota exhausted — run aborted', 'retry later');
+    expect(err).toBeInstanceOf(AnatolyError);
+    expect(err.code).toBe(ERROR_CODES.SDK_ERROR);
+    expect(err.recoverable).toBe(false);
+    expect(err.resetsAtMs).toBe(ts);
+    expect(isRateLimitExhaustedError(err)).toBe(true);
+    expect(isRateLimitExhaustedError(new RateLimitStandbyError(ts))).toBe(false);
+  });
+
+  it('isUsageLimitError covers BOTH the standby and exhausted forms', () => {
+    const ts = Date.now();
+    expect(isUsageLimitError(new RateLimitStandbyError(ts))).toBe(true);
+    expect(isUsageLimitError(new RateLimitExhaustedError(ts, 'm', 'h'))).toBe(true);
+    expect(isUsageLimitError(new AnatolyError('other', ERROR_CODES.SDK_ERROR, true))).toBe(false);
+    expect(isUsageLimitError(new Error('nope'))).toBe(false);
+    expect(isUsageLimitError(undefined)).toBe(false);
+  });
+
+  it('usageLimitResetAt returns the reset time for either form, undefined otherwise', () => {
+    const ts = Date.now() + 500;
+    expect(usageLimitResetAt(new RateLimitStandbyError(ts))).toBe(ts);
+    expect(usageLimitResetAt(new RateLimitExhaustedError(ts, 'm', 'h'))).toBe(ts);
+    expect(usageLimitResetAt(new Error('nope'))).toBeUndefined();
   });
 });

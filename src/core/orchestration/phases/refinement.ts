@@ -125,6 +125,15 @@ export async function runRefinementStage(ctx: RunContext, handoff: Handoff, setu
               },
             });
 
+            // Tier 3 stopped early on a subscription usage limit: mark the
+            // refinement phase incomplete so the run's final status carries
+            // `incompletePhases` and `anatoly run` proposes a resume (which
+            // re-investigates with a fresh quota) instead of finishing silently.
+            if (refinementResult.rateLimitResetAt !== undefined) {
+              ctx.incompletePhases.add('refinement');
+              ctx.rateLimitResetAt = Math.max(ctx.rateLimitResetAt ?? 0, refinementResult.rateLimitResetAt);
+            }
+
             const refinementDuration = Date.now() - refinementStart;
 
             // Update findings counter to reflect post-refinement net

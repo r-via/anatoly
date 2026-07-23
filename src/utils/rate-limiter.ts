@@ -38,6 +38,46 @@ export function isRateLimitStandbyError(error: unknown): error is RateLimitStand
   return error instanceof RateLimitStandbyError;
 }
 
+/**
+ * Thrown by {@link retryWithBackoff} when a {@link RateLimitStandbyError} cannot
+ * be waited out: the reset is beyond {@link MAX_STANDBY_WAIT_MS}, or the standby
+ * cycles are exhausted. It is a non-recoverable {@link AnatolyError} (SDK_ERROR)
+ * so it fast-fails the call without tripping the circuit breaker — but it still
+ * carries `resetsAtMs` so callers (tail phases) can record it as a usage-limit
+ * hit and mark the run resumable, rather than treating it as an opaque failure.
+ */
+export class RateLimitExhaustedError extends AnatolyError {
+  /** Unix-epoch milliseconds when the rate limit resets. */
+  public readonly resetsAtMs: number;
+
+  constructor(resetsAtMs: number, message: string, hint: string) {
+    super(message, ERROR_CODES.SDK_ERROR, false, hint);
+    this.resetsAtMs = resetsAtMs;
+  }
+}
+
+/** Check whether an error is a {@link RateLimitExhaustedError}. */
+export function isRateLimitExhaustedError(error: unknown): error is RateLimitExhaustedError {
+  return error instanceof RateLimitExhaustedError;
+}
+
+/**
+ * Whether an error is a subscription usage-limit signal in ANY of its forms:
+ * a raw {@link RateLimitStandbyError} (single-turn path, no retry wrapper) or a
+ * {@link RateLimitExhaustedError} (agentic path, converted by
+ * {@link retryWithBackoff}). Best-effort tail phases use this to distinguish a
+ * recoverable quota pause from a genuine call failure.
+ */
+export function isUsageLimitError(error: unknown): boolean {
+  return isRateLimitStandbyError(error) || isRateLimitExhaustedError(error);
+}
+
+/** Extract the rate-limit reset time (epoch ms) from a usage-limit error, if known. */
+export function usageLimitResetAt(error: unknown): number | undefined {
+  if (isRateLimitStandbyError(error) || isRateLimitExhaustedError(error)) return error.resetsAtMs;
+  return undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Retry options
 // ---------------------------------------------------------------------------
@@ -160,17 +200,20 @@ export async function retryWithBackoff<T>(
             { file: filePath, resetsAt: error.resetsAtMs, waitMs, resumeAt: resumeStr, cap: MAX_STANDBY_WAIT_MS },
             'rate limit standby exceeds cap — aborting rather than sleeping for hours',
           );
-          throw new AnatolyError(
+          throw new RateLimitExhaustedError(
+            error.resetsAtMs,
             `Provider quota exhausted until ${resumeStr} (wait ${Math.round(waitMs / 60_000)} min > cap ${MAX_STANDBY_WAIT_MS / 60_000} min) — run aborted`,
-            ERROR_CODES.SDK_ERROR,
-            false,
             `retry after ${resumeStr}, lower --concurrency, or upgrade the provider plan to extend the quota window`,
           );
         }
 
         standbyCycles++;
         if (standbyCycles > MAX_STANDBY_CYCLES) {
-          throw new Error(`Rate limit standby exhausted after ${MAX_STANDBY_CYCLES} cycles — giving up`);
+          throw new RateLimitExhaustedError(
+            error.resetsAtMs,
+            `Rate limit standby exhausted after ${MAX_STANDBY_CYCLES} cycles — giving up`,
+            `retry after ${resumeStr}, lower --concurrency, or upgrade the provider plan`,
+          );
         }
 
         contextLogger().info(

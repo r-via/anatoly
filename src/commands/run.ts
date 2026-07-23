@@ -133,6 +133,14 @@ export interface RunContext {
   errorDetails: Array<{ file: string; code: string; message: string; phase: string; axesInFlight?: string[] }>;
   /** Number of files where at least one axis evaluator crashed */
   degradedReviews: number;
+  /** Best-effort tail phases (e.g. `invariants`, `refinement`) that stopped
+   *  early because a call hit the subscription usage limit. When non-empty the
+   *  run's final status carries `incompletePhases` so `anatoly run` proposes a
+   *  resume instead of finishing silently. */
+  incompletePhases: Set<string>;
+  /** Latest rate-limit reset time (epoch ms) observed across incomplete phases,
+   *  surfaced in the end-of-run notice so the user knows when to resume. */
+  rateLimitResetAt?: number;
   /** Per-axis aggregated stats for run-metrics.json */
   axisStats: Record<string, { calls: number; totalDurationMs: number; totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number; totalCacheReadTokens: number; totalCacheCreationTokens: number }>;
   /** Per-phase aggregated stats for run-metrics.json (mirrors axisStats but keyed by pipeline phase, including non-axis phases like rag-index, doc-generation, coherence-review, refinement). */
@@ -266,9 +274,17 @@ export function registerRunCommand(program: Command): void {
             ? 'failed'
             : resumable.state === 'crashed'
               ? 'crashed'
-              : 'stale (running but process gone)';
+              : resumable.state === 'incomplete'
+                ? `finished but ${(resumable.incompletePhases ?? []).join(', ')} skipped on a usage limit`
+                : 'stale (running but process gone)';
+          // The `incomplete` case completed the review (all files done) — the
+          // resume re-runs only the skipped tail phases, so frame it that way
+          // instead of the file-count "done / pending" line.
+          const message = resumable.state === 'incomplete'
+            ? `Previous run ${resumable.runId} ${label}. Resume to finish those phases against the cached reviews.`
+            : `Found an incomplete previous run (${resumable.runId}, ${label}). ${resumable.done} files done, ${resumable.pending} pending.`;
           const choice = await p.select({
-            message: `Found an incomplete previous run (${resumable.runId}, ${label}). ${resumable.done} files done, ${resumable.pending} pending.`,
+            message,
             options: [
               { value: 'resume', label: 'Resume in-place (recommended) — append to that run dir, retry TIMEOUT files' },
               { value: 'fresh', label: 'Start a fresh run — new run dir, the previous one is left untouched' },
@@ -713,6 +729,7 @@ export function registerRunCommand(program: Command): void {
         errorsByCode: {},
         errorDetails: [],
         degradedReviews: 0,
+        incompletePhases: new Set<string>(),
         axisStats: {},
         phaseStats: {},
         providerStats: { anthropic: { calls: 0, costUsd: 0 } },

@@ -28,6 +28,11 @@ export interface RunStatus {
   branch?: string;
   commit?: string;
   background: boolean;
+  /** Best-effort tail phases (e.g. `invariants`, `refinement`) that stopped
+   *  early because a call hit the subscription usage limit. A run can be
+   *  `done` (report produced) yet carry these — {@link detectResumableRun}
+   *  then offers a resume that re-runs them against the cached reviews. */
+  incompletePhases?: string[];
 }
 
 /**
@@ -99,9 +104,12 @@ export function isProcessAlive(pid: number): boolean {
  */
 export interface ResumableRun {
   runId: string;
-  state: 'failed' | 'crashed' | 'stale-running';
+  state: 'failed' | 'crashed' | 'stale-running' | 'incomplete';
   pending: number;
   done: number;
+  /** Tail phases the previous run skipped on a usage limit (present only for
+   *  the `incomplete` case). A resume re-runs them against cached reviews. */
+  incompletePhases?: string[];
 }
 
 /**
@@ -111,46 +119,70 @@ export interface ResumableRun {
  * stale one. Returns `undefined` when nothing is resumable (no prior run, the
  * prior run is `done`, or the project has no pending work left in progress.json).
  *
- * A run is considered resumable when its status is `failed` / `crashed` / a
- * `running` entry whose PID is dead, AND the project's progress.json still
- * has at least one file in PENDING / ERROR / IN_PROGRESS / TIMEOUT — i.e. the
- * orchestrator's review-phase entry path actually has files to process.
+ * A run is considered resumable when EITHER:
+ *  - its status is `failed` / `crashed` / a `running` entry whose PID is dead,
+ *    AND the project's progress.json still has at least one file in PENDING /
+ *    ERROR / IN_PROGRESS / TIMEOUT — the review-phase entry path has files to
+ *    process; OR
+ *  - it recorded `incompletePhases` (a best-effort tail phase like
+ *    `invariants` / `refinement` stopped early on a subscription usage limit).
+ *    This case is resumable even when the run is `done` with zero pending
+ *    files: the resume re-runs the skipped phases against the cached reviews.
  */
 export function detectResumableRun(projectRoot: string): ResumableRun | undefined {
   const statuses = listRunStatuses(projectRoot);
   if (statuses.length === 0) return undefined;
   // listRunStatuses returns chronological asc; the last is the most recent.
   const latest = statuses[statuses.length - 1];
+  const hasIncompletePhases = (latest.incompletePhases?.length ?? 0) > 0;
 
   let state: ResumableRun['state'];
   if (latest.status === 'failed' || latest.status === 'crashed') {
     state = latest.status;
   } else if (latest.status === 'running' && !isProcessAlive(latest.pid)) {
     state = 'stale-running';
+  } else if (hasIncompletePhases) {
+    // `done` (or actively-running with a live PID we still trust), but a tail
+    // phase was skipped on a usage limit — resumable to complete it.
+    state = 'incomplete';
   } else {
-    return undefined; // done, or actively running
+    return undefined; // done with everything, or actively running
   }
 
-  // Count files left to evaluate per progress.json
+  // Count files left to evaluate per progress.json. A missing/unreadable
+  // progress file is only fatal when we're relying on pending files: an
+  // incomplete-phases resume needs no pending files, so default to 0.
+  let pending = 0;
+  let done = 0;
   const progressPath = join(anatolyPath(projectRoot, 'cache'), 'progress.json');
-  if (!existsSync(progressPath)) return undefined;
-  let progress: { files?: Record<string, { status?: string }> };
-  try {
-    progress = JSON.parse(readFileSync(progressPath, 'utf-8'));
-  } catch {
+  if (existsSync(progressPath)) {
+    try {
+      const progress = JSON.parse(readFileSync(progressPath, 'utf-8')) as {
+        files?: Record<string, { status?: string }>;
+      };
+      for (const fp of Object.values(progress.files ?? {})) {
+        const s = fp.status;
+        if (s === 'PENDING' || s === 'ERROR' || s === 'IN_PROGRESS' || s === 'TIMEOUT') pending++;
+        else if (s === 'DONE' || s === 'CACHED') done++;
+      }
+    } catch {
+      if (!hasIncompletePhases) return undefined;
+    }
+  } else if (!hasIncompletePhases) {
     return undefined;
   }
 
-  let pending = 0;
-  let done = 0;
-  for (const fp of Object.values(progress.files ?? {})) {
-    const s = fp.status;
-    if (s === 'PENDING' || s === 'ERROR' || s === 'IN_PROGRESS' || s === 'TIMEOUT') pending++;
-    else if (s === 'DONE' || s === 'CACHED') done++;
-  }
-  if (pending === 0) return undefined; // nothing left to do
+  // Nothing left to do only when there are no pending files AND no skipped
+  // tail phase to re-run.
+  if (pending === 0 && !hasIncompletePhases) return undefined;
 
-  return { runId: latest.runId, state, pending, done };
+  return {
+    runId: latest.runId,
+    state,
+    pending,
+    done,
+    ...(hasIncompletePhases ? { incompletePhases: latest.incompletePhases } : {}),
+  };
 }
 
 /**

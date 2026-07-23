@@ -71,6 +71,9 @@ export interface RefinementResult {
   totalOutputTokens: number;
   totalCacheReadTokens: number;
   totalCacheCreationTokens: number;
+  /** Set (to the reset time, epoch ms) when tier 3 stopped early because it hit
+   *  the subscription usage limit. The caller marks the run resumable. */
+  rateLimitResetAt?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,6 +221,7 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
   let tier3OutputTokens = 0;
   let tier3CacheReadTokens = 0;
   let tier3CacheCreationTokens = 0;
+  let tier3RateLimitResetAt: number | undefined;
   const finalReviews = new Map(tier2Reviews.map((r) => [r.file, r]));
 
   if (escalatedForTier3.length > 0 && ctx.queryFn) {
@@ -264,6 +268,7 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
     tier3OutputTokens = tier3Result.totalOutputTokens;
     tier3CacheReadTokens = tier3Result.totalCacheReadTokens;
     tier3CacheCreationTokens = tier3Result.totalCacheCreationTokens;
+    tier3RateLimitResetAt = tier3Result.rateLimitResetAt;
 
     // Merge tier 3 updated reviews back
     for (const [file, updated] of tier3Result.updatedReviews) {
@@ -320,6 +325,7 @@ async function runRefinementPhaseImpl(ctx: RefinementContext): Promise<Refinemen
     totalOutputTokens: tier3OutputTokens,
     totalCacheReadTokens: tier3CacheReadTokens,
     totalCacheCreationTokens: tier3CacheCreationTokens,
+    ...(tier3RateLimitResetAt !== undefined ? { rateLimitResetAt: tier3RateLimitResetAt } : {}),
   };
 }
 

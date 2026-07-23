@@ -18,6 +18,7 @@ import {
 import type { EscalatedFinding } from './tier2.js';
 import type { ReviewFile, SymbolReview } from '../../../schemas/review.js';
 import type { DeliberationResponse } from '../deliberation.js';
+import { RateLimitStandbyError, RateLimitExhaustedError } from '../../../utils/rate-limiter.js';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -374,6 +375,36 @@ describe('runTier3', () => {
     expect(result.shardResults.length).toBe(2);
     expect(result.shardResults[0].status).toBe('failed');
     expect(result.shardResults[1].status).toBe('ok');
+  });
+
+  it.each([
+    ['raw standby (near-future reset)', (ts: number) => new RateLimitStandbyError(ts)],
+    ['exhausted (far-future reset, retryWithBackoff-converted)', (ts: number) => new RateLimitExhaustedError(ts, 'quota exhausted — run aborted', 'retry later')],
+  ])('stops the shard loop on a usage-limit error [%s] and surfaces the reset time', async (_label, makeErr) => {
+    const resetsAtMs = Date.now() + 2 * 60 * 60 * 1000; // 2h out — the observed case
+    const queryFn = vi.fn().mockRejectedValue(makeErr(resetsAtMs));
+
+    const shards: Shard[] = [
+      { module: 'src/core', findings: [makeEscalated({ file: 'src/core/example.ts' })] },
+      { module: 'src/utils', findings: [makeEscalated({ file: 'src/utils/helper.ts' })] },
+    ];
+
+    const ctx = makeCtx({
+      queryFn,
+      reviewsByFile: new Map([
+        ['src/core/example.ts', makeReview({ file: 'src/core/example.ts' })],
+        ['src/utils/helper.ts', makeReview({ file: 'src/utils/helper.ts' })],
+      ]),
+    });
+
+    const result = await runTier3(shards, ctx);
+
+    // Broke out after the FIRST shard — no point hammering a capped quota.
+    expect(queryFn).toHaveBeenCalledTimes(1);
+    expect(result.shardResults.length).toBe(1);
+    expect(result.shardResults[0].status).toBe('failed');
+    // Reset time surfaced so the caller marks the run resumable.
+    expect(result.rateLimitResetAt).toBe(resetsAtMs);
   });
 
   // --- AC: Budget cap ---

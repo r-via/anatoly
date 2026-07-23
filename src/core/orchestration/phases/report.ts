@@ -300,6 +300,20 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     }
   }
 
+  // Subscription usage limit hit during a best-effort tail phase: the report
+  // was still produced from the completed review, but the skipped phases left
+  // the run incomplete. Surface it loudly (not just in the JSON) so the user
+  // knows to resume — `anatoly run` will detect the incomplete run and offer it.
+  if (ctx.incompletePhases.size > 0) {
+    const phases = [...ctx.incompletePhases].join(', ');
+    const resetHint = ctx.rateLimitResetAt
+      ? ` (resets ${new Date(ctx.rateLimitResetAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`
+      : '';
+    console.log('');
+    console.log(chalk.yellow.bold(`  ⚠ Subscription usage limit hit — ${phases} left incomplete${resetHint}.`));
+    console.log(chalk.yellow(`  The report reflects the completed review. Run \`anatoly run\` after the limit resets to resume and finish ${phases}.`));
+  }
+
   if (ctx.shouldOpen) openFile(reportPath);
 
   // Run summary
@@ -396,7 +410,10 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
     log.warn({ runId: ctx.runId, err }, 'failed to update calibration');
   }
 
-  // Persist run-status.json — transition to 'done' (Story 53.1)
+  // Persist run-status.json — transition to 'done' (Story 53.1).
+  // The status stays 'done' (the review completed and a report was produced),
+  // but a usage-limit hit in a best-effort tail phase is recorded in
+  // `incompletePhases` so `detectResumableRun` offers a resume next time.
   if (ctx.runDir) {
     const gi = ctx.gitInfo ?? getGitInfo(ctx.projectRoot);
     const runStatus: RunStatus = {
@@ -408,6 +425,7 @@ export function runReportPhase(ctx: RunContext, handoff: Handoff): void {
       branch: gi.branch,
       commit: gi.commit,
       background: !!process.env.ANATOLY_BACKGROUND_MODE,
+      ...(ctx.incompletePhases.size > 0 ? { incompletePhases: [...ctx.incompletePhases] } : {}),
     };
     writeRunStatus(ctx.runDir, runStatus);
   }
