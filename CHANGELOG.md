@@ -6,6 +6,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-08-27
+
 ### Added
 
 - **Lite-mode documentation is now per-file RAG retrieval.** In `documentation.internal.mode: lite`, reference docs reach the `correction`, `best-practices`, and `overengineering` axes through targeted RAG lookups at review time: for each file, Anatoly retrieves the most relevant doc-section chunks, expands each to its H2 neighbourhood (matched section + previous + next), and injects them as authoritative ground truth. No upfront artefact, no token budget, no truncation; the retrieval is deterministic (cosine similarity, no LLM) and scales to any doc corpus size. Reference docs are treated as correct and current in lite mode (code/doc drift is flagged as `doc_divergence` against the code). Use `mode: full` when docs may be stale and you want 3-way arbitration instead.
