@@ -36,7 +36,7 @@ export const ACTIONABLE_VERDICTS: Record<string, ReadonlySet<string>> = {
  * the actions. Without this pass a symbol resolved to USED still carries a
  * "Remove dead code" action, and a barrel grouped into one whole-file action
  * keeps listing every export even after most are reclassified USED (the
- * exact osteovienne `Card`/`Dialog`/`Table` false positive).
+ * exact ui-kit-app `Card`/`Dialog`/`Table` false positive).
  *
  * For each action whose `source` is verdict-driven:
  *  - split the (possibly comma-joined, grouped) `target_symbol` into names;

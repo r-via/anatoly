@@ -4,7 +4,7 @@ Status: design, not implemented. Spec-first. Three threads (Fil #1, #2, #3) sequ
 
 ## 0. Origin
 
-Two reflections from a real run (`theraphonia`, v0.9.6, run `2026-06-13_131930`) motivate this doc.
+Two reflections from a real run (`audio-app`, v0.9.6, run `2026-06-13_131930`) motivate this doc.
 
 **Reflection #1 (axis overlap).** The best-practices axis listed items that look like duplication or dead code. Is best-practices redundant with the duplication and utility axes?
 

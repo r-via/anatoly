@@ -431,7 +431,7 @@ describe('runRefinementPhase', () => {
   // --- A.1: written review reconciles a grouped barrel action after tier1 ---
 
   it('rewrites a grouped dead-code action to only the still-DEAD export before writing', async () => {
-    // Reproduces the osteovienne Card barrel: tier1 flips 5 exports USED via the
+    // Reproduces the ui-kit-app Card barrel: tier1 flips 5 exports USED via the
     // usage graph, CardFooter has no importers and stays DEAD. The review carries
     // ONE grouped "Remove dead code: Card, ..., CardFooter" action — the write
     // loop must reconcile it down to CardFooter, not surface the USED exports.

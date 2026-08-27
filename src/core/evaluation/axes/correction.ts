@@ -146,7 +146,7 @@ export function renderCallersContext(ctx: AxisContext): string {
  * the file-evaluator from the reverse usage graph + RAG cards. Gives the model
  * the real inputs/outputs of its dependencies so a remediation cannot invent a
  * field or return value an imported symbol does not expose (rule 16's
- * "derive-from-unshown-source" shape, e.g. theraphonia LiveSpectrumAnalyzer:
+ * "derive-from-unshown-source" shape, e.g. audio-app LiveSpectrumAnalyzer:
  * "read deltaHz from getDeviceCarrierFrequencies()" when that function returns
  * only carrier frequencies). Absent in RAG-off mode → returns ''.
  */
@@ -424,7 +424,7 @@ export function applyVerification(
  * softeners ("this is fine", "harmless") are excluded to avoid suppressing a
  * real bug that merely contains reassuring prose. Extend with care.
  *
- * Widened from the theraphonia shard-11 BaseAudioController FP (run 2026-06-08):
+ * Widened from the audio-app shard-11 BaseAudioController FP (run 2026-06-08):
  * a NEEDS_FIX whose sub-findings each concluded "No defect" / "OK on this
  * sub-point" survived because the lexicon required a "real/actual" qualifier
  * before "defect" and had no entry for the "ok on this …" conclusion. Both
@@ -525,7 +525,7 @@ const DEADNESS_JUSTIFICATION =
  * verb AND an explicit deadness admission are present, so a real fix (e.g.
  * "export the type the public API requires") is preserved. Verdict handling is
  * left to rule 14 and the tier-2 DEAD coherence mute; this only removes the
- * misleading "Quick Win" artifact (cf. theraphonia getOscillatorCompensation,
+ * misleading "Quick Win" artifact (cf. audio-app getOscillatorCompensation,
  * run 2026-06-07).
  */
 export function stripResurrectionActions(data: CorrectionResponse): CorrectionResponse {

@@ -508,7 +508,7 @@ describe('reconcileSelfContradictions', () => {
     expect(out.symbols[0].correction).toBe('NEEDS_FIX');
   });
 
-  // theraphonia shard-11 BaseAudioController FP (run 2026-06-08): the lexicon
+  // audio-app shard-11 BaseAudioController FP (run 2026-06-08): the lexicon
   // missed bare "No defect" and the "OK on this sub-point" conclusion.
   it('downgrades when sub-findings conclude "No defect" / "OK on this sub-point"', () => {
     const out = reconcileSelfContradictions(flagged([
@@ -570,7 +570,7 @@ describe('stripResurrectionActions', () => {
     };
   }
 
-  it('drops "export the dead curve logic so callers can use it" (theraphonia getOscillatorCompensation)', () => {
+  it('drops "export the dead curve logic so callers can use it" (audio-app getOscillatorCompensation)', () => {
     const out = stripResurrectionActions(withActions([
       'Export `getOscillatorCompensation` (and optionally its helpers) so callers can apply Fletcher-Munson compensation as documented. Currently the entire compensation curve logic is dead code.',
     ]));
@@ -651,7 +651,7 @@ describe('correction prompt — rule 14/15 guidance (FP set 2026-06-07)', () => 
 
     it(`${label} variant abstains on ungrounded cross-context claims (rule 16)`, () => {
       const lower = prompt.toLowerCase();
-      // The three FP shapes the generic guard covers (theraphonia cas 5/6/7).
+      // The three FP shapes the generic guard covers (audio-app cas 5/6/7).
       expect(lower).toMatch(/"unrelated"|unrelated.*independent|independent.*unrelated/);
       expect(lower).toMatch(/return shape is not shown|whose return shape/);
       expect(lower).toMatch(/platform\/library api|external api/);

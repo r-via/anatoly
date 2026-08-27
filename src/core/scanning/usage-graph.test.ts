@@ -889,7 +889,7 @@ describe('buildUsageGraph — default exports', () => {
   });
 });
 
-describe('buildUsageGraph — separately default-exported bindings (theraphonia utility FP guard)', () => {
+describe('buildUsageGraph — separately default-exported bindings (audio-app utility FP guard)', () => {
   // Build a Task from a REAL parse so the scanner-derived `is_default` flag —
   // not a hand-set one — drives resolution. This is the end-to-end guard for
   // the `const Foo = ...; export default Foo;` form that the scanner used to

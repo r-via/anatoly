@@ -286,7 +286,7 @@ export function applyTier1(review: ReviewFile, ctx: Tier1Context): ReviewFile & 
     // LLM's semantic match where embeddings underperform. That trust is void
     // when the LLM's OWN rationale negates its verdict: a stated similarity
     // below the documented 0.82 threshold together with "differs"/"below
-    // threshold"/"not a duplicate" language (the osteovienne Stat↔Metric false
+    // threshold"/"not a duplicate" language (the ui-kit-app Stat↔Metric false
     // positive: RAG 0.744, "actual code differs significantly"). Demote AND
     // clear the target — the schema invariant (duplicate_target ⇒ DUPLICATE)
     // would otherwise re-promote the verdict from the surviving target.

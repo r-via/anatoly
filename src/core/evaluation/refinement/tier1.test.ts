@@ -299,7 +299,7 @@ describe('applyTier1', () => {
   });
 
   it('demotes a self-contradicting DUPLICATE (below 0.82 + "differs") and clears the target', () => {
-    // osteovienne Stat↔Metric: the LLM emitted DUPLICATE with a populated
+    // ui-kit-app Stat↔Metric: the LLM emitted DUPLICATE with a populated
     // target, but its own rationale says 0.744 (below 0.82) and the code
     // "differs significantly". That self-contradiction is a false positive.
     const review = makeReview({

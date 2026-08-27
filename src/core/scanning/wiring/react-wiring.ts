@@ -21,7 +21,7 @@ const DYNAMIC_IMPORT = /\bimport\(\s*['"`]([^'"`]+)['"`]\s*\)/g;
  *     its *declared* name. So `import Page from './Page'` + `<Page/>` leaves
  *     `Page` with zero name-keyed importers — it looks DEAD, and as a flow
  *     entry that reaches no effect it is flagged `unwired_flow`. This is the
- *     theraphonia false-positive class: route/page components (Auth, Profile,
+ *     audio-app false-positive class: route/page components (Auth, Profile,
  *     AccountSettings…) mounted via `<Route element={<Page/>}/>`.
  *  2. **Lazy routes.** `lazy(() => import('./Page'))` is a call expression, not
  *     an import statement, so no edge is recorded at all.

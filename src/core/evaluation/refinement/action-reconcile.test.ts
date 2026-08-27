@@ -44,7 +44,7 @@ describe('reconcileActionsWithVerdicts', () => {
   // --- A.1: grouped utility action after partial DEAD→USED flip ---
 
   it('rebuilds a grouped barrel action to only the symbols still DEAD', () => {
-    // The osteovienne Card barrel: 5 exports resolved USED, CardFooter still DEAD,
+    // The ui-kit-app Card barrel: 5 exports resolved USED, CardFooter still DEAD,
     // but the review carries one grouped "Remove dead code: Card, ..., CardFooter".
     const names = ['Card', 'CardHeader', 'CardTitle', 'CardDescription', 'CardContent', 'CardFooter'];
     const symbols = names.map((n) =>
