@@ -31,11 +31,10 @@ Start from 10.0 and subtract penalties per rule violation:
 ## Rules for evaluation
 
 1. Evaluate ALL 17 rules for EVERY file. Output all 17 rules in the result.
-2. PASS = rule fully satisfied. WARN = a localized or partial instance. FAIL = a clear violation of the rule's core intent. Only FAIL rules surface as findings in the report (WARN stays advisory in the per-file review), so calibrate the boundary deliberately:
-   - CRITICAL and HIGH rules (1, 2, 8, 12, 13): one clear instance is a FAIL. A single `any` on a public signature, one non-Error throw, one unsafe primitive.
-   - Rule 9 (JSDoc): FAIL when three or more public exports lack JSDoc; WARN for one or two.
-   - Rule 15 (Testability): FAIL when the file offers no seam at all (non-deterministic or I/O dependencies hard-wired with no injection point and no pure core); WARN when some collaborators are hard-instantiated but an injection mechanism or a pure path exists.
-   - Other MEDIUM rules (3-6, 10, 11, 14, 16, 17; rule 7 has its own brackets below): FAIL when the pattern repeats across the file or sits on its main export; a single instance is WARN. When torn between WARN and FAIL on a MEDIUM rule, choose WARN.
+2. PASS = rule fully satisfied. WARN = the file falls short of the rule's ideal: something is missing that would make it better (a `readonly` that could be added, an export without a comment, a guard that could reject bad input, a collaborator that could be injected). FAIL = the rule's named defect is PRESENT on a concrete line, and that line is the violation itself, not an improvement opportunity. Calibrate the boundary deliberately:
+   - CRITICAL and HIGH rules (1, 2, 8, 12, 13): one clear instance is a FAIL. A single `any` on a public signature, one non-Error throw, one swallowed or unhandled rejection, one unsafe primitive.
+   - MEDIUM rules (3-6, 9-11, 14-17; rule 7 has its own brackets below): a FAIL needs a defect, not a missing nicety. Rule 5 FAILs on a parameter or shared constant mutated in place, not on data that merely could be `as const`. Rule 9 FAILs when an export's contract cannot be read from its name and signature (units, ranges, ordering, side effects, invariants) and nothing documents it; a self-describing export without a comment is WARN. Rule 15 FAILs when the file's own logic cannot be exercised without the hard-wired dependency (no injection point AND no pure core); a dependency that could be injected is WARN. "Could be more idiomatic" is always WARN. When torn between WARN and FAIL on a MEDIUM rule, choose WARN.
+   - One line, one rule. A line that already FAILs a CRITICAL or HIGH rule does not also FAIL a MEDIUM rule for the same reason: a hard-wired `Math.random()` is rule 13, and rule 15 stays WARN with a cross-reference. Missing argument validation is not rule 12 (rule 12 covers how errors are raised and handled, not which inputs are rejected); suggest the guard, keep the rule at WARN.
 3. Adjust evaluation based on file context (see context hint below).
    - For **Rule 7 (file size)** specifically: pick the threshold from the file's role inferred from path/name/imports. Orchestration spines (e.g. `*/orchestration/pipeline.ts`, `*/phases/*.ts`), reporters/aggregators that emit multi-format outputs (e.g. `*/reporting/reporter.ts`), evaluation refinement tiers, and central schema barrels legitimately concentrate concept-related code and target the < 1000 line bracket. Utility leaves, pure helpers, single-purpose adapters target the < 500 line bracket. PASS if the file fits its applicable bracket; WARN if 1–1.5× the bracket; FAIL only when the file substantially exceeds its bracket AND a clean split would not introduce artificial module boundaries.
 4. For test files: rules 9 (JSDoc) and 15 (testability) are always PASS.
@@ -71,7 +70,7 @@ A pattern that appears unsafe in isolation but is guarded by the type system sho
 
 - **9–10**: All 17 rules PASS. Strict mode, zero `any`, proper error handling, security-clean, well-documented exports.
 - **7–8**: Minor issues only (1-2 MEDIUM WARN). E.g., missing `readonly` on a config object, or one import group out of order.
-- **5–6**: Several MEDIUM violations or 1 HIGH violation. E.g., missing JSDoc on 3+ public exports, or 3+ separate MEDIUM rules flagged at once.
+- **5–6**: Several MEDIUM violations or 1 HIGH violation. E.g., a parameter mutated in place plus undocumented non-obvious exports, or 3+ separate MEDIUM rules flagged at once.
 - **3–4**: Multiple HIGH violations or 1 CRITICAL. E.g., unhandled promise rejections AND missing JSDoc AND no strict mode.
 - **1–2**: 1 CRITICAL + multiple HIGH. E.g., explicit `any` used pervasively AND hardcoded secrets found.
 - **0**: Multiple CRITICAL violations. E.g., `eval()` with user input AND hardcoded API keys AND pervasive `any`. 0 score reserved for extreme cases.

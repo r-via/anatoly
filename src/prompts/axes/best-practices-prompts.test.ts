@@ -351,17 +351,26 @@ describe('best-practices.system.md — TypeScript base — FAIL/WARN calibration
     prompt = resolveSystemPrompt('best_practices');
   });
 
-  it('tells the model that only FAIL rules surface as findings', () => {
-    // render-axis.ts lists FAIL rules only; WARN stays in the per-file review.
-    expect(prompt).toMatch(/Only FAIL rules surface as findings/);
+  it('defines FAIL as a defect present on a concrete line, WARN as a missing nicety', () => {
+    // A first calibration with numeric thresholds ("three or more exports lack
+    // JSDoc", "no seam at all") made both generations FAIL more MEDIUM rules per
+    // file on slot-engine, not fewer: a zero-JSDoc fixture meets any such
+    // threshold everywhere. The boundary is defect vs improvement opportunity.
+    expect(prompt).toMatch(/FAIL = the rule's named defect is PRESENT on a concrete line/);
+    expect(prompt).toMatch(/a FAIL needs a defect, not a missing nicety/);
+    expect(prompt).toMatch(/"Could be more idiomatic" is always WARN/);
+    expect(prompt).not.toMatch(/Only FAIL rules surface as findings/);
+    expect(prompt).not.toMatch(/three or more public exports lack JSDoc/);
   });
 
-  it('gives rule 9 a numeric FAIL threshold consistent with the score calibration', () => {
-    expect(prompt).toMatch(/Rule 9 \(JSDoc\): FAIL when three or more public exports lack JSDoc/);
-    expect(prompt).toMatch(/missing JSDoc on 3\+ public exports/);
+  it('keeps rule 5 FAIL for in-place mutation and rule 9 FAIL for undocumented non-obvious contracts', () => {
+    expect(prompt).toMatch(/Rule 5 FAILs on a parameter or shared constant mutated in place/);
+    expect(prompt).toMatch(/a self-describing export without a comment is WARN/);
   });
 
-  it('reserves rule 15 FAIL for files with no testability seam at all', () => {
-    expect(prompt).toMatch(/Rule 15 \(Testability\): FAIL when the file offers no seam at all/);
+  it('does not let one line fail two rules and keeps argument validation out of rule 12', () => {
+    expect(prompt).toMatch(/One line, one rule/);
+    expect(prompt).toMatch(/a hard-wired `Math\.random\(\)` is rule 13, and rule 15 stays WARN/);
+    expect(prompt).toMatch(/Missing argument validation is not rule 12/);
   });
 });
