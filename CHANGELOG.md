@@ -6,6 +6,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-25
+
+### Changed
+
+- **Default models move to the Claude 5.5 generation** (ANA-1). `anatoly init` and the built-in defaults now use `anthropic/claude-sonnet-5-5` (quality), `anthropic/claude-haiku-5-5` (fast) and `anthropic/claude-opus-5-5` (deliberation). The context-window table knows the 5.5 models (1M tokens) and the documentation token budget is capped at 40k tokens regardless of the window. Existing `.anatoly.yml` files keep the models they pin.
+- **Claude Agent SDK bumped to 0.3.310** (ANA-2), from 0.3.144.
+- **Explicit reasoning effort on every Claude call** (ANA-6). The bundled Claude Code CLI picks `medium` effort for the 5.5 models (and `high` for 4.6), which silently lowered audit quality on the new generation (slot-engine F1 0.768 to 0.614). Anatoly now sends an `effort` on every SDK call, `high` by default for every tier, configurable per tier through `routing.effort` (v3 config: `quality`, `fast`, `deliberation`, `summarization`). `anatoly providers` pings with `low`.
+- **Prompts recalibrated for the 5.5 generation** (ANA-7), measured on both generations:
+  - best-practices: the industry amplifier (rule 11) targets the choice of primitive only; an inverted formula, a wrong rounding direction or a bonus applied on the wrong branch is a wrong result and belongs to the correction axis, not to rule 13. FAIL now means the rule's named defect is present on a concrete line, WARN means an improvement opportunity; one line fails one rule; missing argument validation is not rule 12.
+  - correction: a confident industry convention is a contract that a silent README does not void; bonus-round accounting (free spins, retries) is named among the rule 11 examples.
+  - Result on slot-engine: Sonnet 5.5 F1 0.725 (was 0.678), on par with Sonnet 4.6 (0.723 across four runs) at about 40 % of the cost and half the wall-clock time.
+
+### Fixed
+
+- The startup banner still showed v0.9.6.
+
 ## [0.10.0] - 2026-08-27
 
 ### Added
