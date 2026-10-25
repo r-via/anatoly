@@ -13,10 +13,10 @@
  */
 
 import type { PageContext, SymbolContext } from '../../scanning/index.js';
-import { resolveSystemPrompt } from '../../platform/index.js';
+import { DEFAULT_MODEL_IDS, resolveSystemPrompt } from '../../platform/index.js';
 import type { TypeContextSection } from './doc-type-context.js';
 
-export const DEFAULT_MODEL = 'sonnet';
+export const DEFAULT_MODEL = DEFAULT_MODEL_IDS.quality;
 
 // --- Public interfaces ---
 
@@ -57,7 +57,7 @@ export interface DocNeighbor {
  * @param pageContext - Extracted source context (file tree, exports, import graph) for the page.
  * @param packageJson - Parsed package.json providing project name, version, scripts, and dependencies.
  * @param options - Optional generation settings.
- * @param options.model - LLM model identifier; defaults to {@link DEFAULT_MODEL} (`'sonnet'`).
+ * @param options.model - LLM model identifier; defaults to {@link DEFAULT_MODEL} (the quality-tier default).
  * @param options.allPages - Full list of documentation page paths used to constrain cross-links.
  * @param options.neighbors - Existing sibling pages whose content is included for cross-reference context.
  * @param options.readme - Project README content included as high-level context (truncated to 100 lines).

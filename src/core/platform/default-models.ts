@@ -11,9 +11,21 @@
  */
 export const DEFAULT_MODELS = {
   /** Quality tier — axis evaluations (Sonnet). */
-  quality: 'anthropic/claude-sonnet-4-6',
+  quality: 'anthropic/claude-sonnet-5-5',
   /** Fast tier — triage, code summaries (Haiku). */
-  fast: 'anthropic/claude-haiku-4-5-20251001',
+  fast: 'anthropic/claude-haiku-5-5',
   /** Deliberation tier — refinement / investigation (Opus). */
-  deliberation: 'anthropic/claude-opus-4-6',
+  deliberation: 'anthropic/claude-opus-5-5',
+} as const;
+
+const bareId = (ref: string): string => ref.slice(ref.indexOf('/') + 1);
+
+/**
+ * The same defaults without the provider prefix (e.g. `claude-sonnet-5-5`),
+ * for direct SDK calls and lookup tables keyed by bare model id.
+ */
+export const DEFAULT_MODEL_IDS = {
+  quality: bareId(DEFAULT_MODELS.quality),
+  fast: bareId(DEFAULT_MODELS.fast),
+  deliberation: bareId(DEFAULT_MODELS.deliberation),
 } as const;

@@ -1137,7 +1137,7 @@ describe('writeFirstRunConfig', () => {
     const content = readFileSync(join(dir, '.anatoly.yml'), 'utf-8');
     expect(content).toContain('# Per-axis override example');
     expect(content).toContain('#   correction:');
-    expect(content).toContain('#     model: anthropic/claude-opus-4-6');
+    expect(content).toContain('#     model: anthropic/claude-opus-5-5');
     expect(content).toContain('# Documentation axis:');
   });
 

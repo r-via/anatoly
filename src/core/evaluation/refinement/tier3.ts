@@ -47,7 +47,7 @@ export interface Tier3Context {
   projectRoot: string;
   /** Run directory for cache persistence. */
   runDir?: string;
-  /** Model to use for investigation (default: claude-opus-4-6). */
+  /** Model to use for investigation (the configured deliberation model). */
   model: string;
   /** Abort controller for cancellation. */
   abortController: AbortController;

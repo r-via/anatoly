@@ -683,7 +683,7 @@ export function buildAnnotatedV3Yaml(
     '# Per-axis override example — replaces routing.generation.quality for that axis:',
     '#   correction:',
     '#     enabled: true',
-    '#     model: anthropic/claude-opus-4-6',
+    '#     model: anthropic/claude-opus-5-5',
     '# Documentation axis: edit reference.paths to point at your human docs,',
     '# and internal.mode to "full" for LLM-generated internal pages or "off"',
     '# to disable internal doc generation entirely. See docs for details.',

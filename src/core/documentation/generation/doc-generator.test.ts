@@ -185,8 +185,8 @@ describe('buildPagePrompt', () => {
         samplePkg,
       );
 
-      expect(result.model).toBe('sonnet');
-      expect(DEFAULT_MODEL).toBe('sonnet');
+      expect(result.model).toBe('claude-sonnet-5-5');
+      expect(DEFAULT_MODEL).toBe('claude-sonnet-5-5');
     });
 
     it('allows model override', () => {

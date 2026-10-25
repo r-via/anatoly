@@ -19,7 +19,7 @@ import { runPipeline } from '../cli/pipeline-runner.js';
 import { indexProjectStandalone, resolveRagTableName } from '../rag/standalone.js';
 import { detectDocGapsV2, formatGapReportV2 } from '../core/documentation/index.js';
 import { VectorStore } from '../rag/vector-store.js';
-import { resolveSystemPrompt } from '../core/platform/index.js';
+import { DEFAULT_MODEL_IDS, resolveSystemPrompt } from '../core/platform/index.js';
 import { areDocTreesIdentical } from '../rag/doc-indexer.js';
 import { runArbitrateWizard, runRefreshStandalone, type RefreshFn } from './docs-arbitrate.js';
 import { refreshPendingConflicts } from '../core/documentation/index.js';
@@ -153,7 +153,7 @@ async function runDocUpdate(
     const user = buildCreatePageMessage(work.domain, work.functions);
     try {
       ctx.state.trackFile(work.path);
-      const result = await ctx.executor({ system, user, model: 'sonnet' });
+      const result = await ctx.executor({ system, user, model: DEFAULT_MODEL_IDS.quality });
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, result.text, 'utf-8');
       ctx.addCost(result.costUsd);
@@ -188,7 +188,7 @@ async function runDocUpdate(
 
     try {
       ctx.state.trackFile(pagePath);
-      const result = await ctx.executor({ system, user, model: 'sonnet' });
+      const result = await ctx.executor({ system, user, model: DEFAULT_MODEL_IDS.quality });
       mkdirSync(dirname(fullPath), { recursive: true });
       writeFileSync(fullPath, result.text, 'utf-8');
       ctx.addCost(result.costUsd);

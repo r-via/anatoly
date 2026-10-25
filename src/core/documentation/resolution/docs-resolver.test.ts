@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { parseTestConfig } from '../../../schemas/test-fixtures.js';
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { buildDocsTree, resolveRelevantDocs, resolveAllRelevantDocs } from './docs-resolver.js';
+import { buildDocsTree, resolveRelevantDocs, resolveAllRelevantDocs, getDocTokenBudget, MAX_DOC_TOKEN_BUDGET } from './docs-resolver.js';
 import type { Config } from '../../../schemas/config.js';
 
 const TMP = join(import.meta.dirname ?? '.', '__test_docs_resolver__');
@@ -263,5 +263,22 @@ describe('resolveAllRelevantDocs (Story 29.18)', () => {
     });
 
     expect(docs).toEqual([]);
+  });
+});
+
+describe('getDocTokenBudget', () => {
+  it('takes 20% of a 200K window', () => {
+    expect(getDocTokenBudget('claude-sonnet-4-6')).toBe(40_000);
+  });
+
+  it('caps 1M-window models at the 200K-window budget', () => {
+    expect(getDocTokenBudget('claude-sonnet-5-5')).toBe(MAX_DOC_TOKEN_BUDGET);
+    expect(getDocTokenBudget('claude-opus-5-5')).toBe(MAX_DOC_TOKEN_BUDGET);
+    expect(MAX_DOC_TOKEN_BUDGET).toBe(40_000);
+  });
+
+  it('falls back to the default window for unknown models', () => {
+    expect(getDocTokenBudget('unknown-model')).toBe(40_000);
+    expect(getDocTokenBudget()).toBe(40_000);
   });
 });

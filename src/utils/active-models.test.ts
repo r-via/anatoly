@@ -11,9 +11,9 @@ describe('enumerateActiveModels', () => {
     const config = parseTestConfig({});
     const models = enumerateActiveModels(config);
     // Defaults from DEFAULT_MODELS
-    expect(models).toContain('anthropic/claude-sonnet-4-6');
-    expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
-    expect(models).toContain('anthropic/claude-opus-4-6');
+    expect(models).toContain('anthropic/claude-sonnet-5-5');
+    expect(models).toContain('anthropic/claude-haiku-5-5');
+    expect(models).toContain('anthropic/claude-opus-5-5');
   });
 
   it('deduplicates identical model ids across sources', () => {

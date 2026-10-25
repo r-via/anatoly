@@ -26,7 +26,7 @@ export type { CircuitState } from './circuit-breaker.js';
 
 export { resolveSystemPrompt, _resetPromptRegistry, _getRegistryKeys } from './prompt-resolver.js';
 
-export { DEFAULT_MODELS } from './default-models.js';
+export { DEFAULT_MODELS, DEFAULT_MODEL_IDS } from './default-models.js';
 
 export {
   saveDeliberationMemory,

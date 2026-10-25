@@ -122,7 +122,7 @@ describe('runFlowDocPhase', () => {
     };
     expect(prompt.system).toContain('User Flows');
     expect(prompt.user).toContain('flow:src/api.ts::serve');
-    expect(prompt.model).toBe('sonnet');
+    expect(prompt.model).toBe('claude-sonnet-5-5');
 
     const page = readFileSync(flowDocPagePath(root), 'utf-8');
     expect(page).toContain('# User Flows');

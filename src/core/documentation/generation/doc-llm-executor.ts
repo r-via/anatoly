@@ -17,7 +17,7 @@ import { getDocTokenBudget } from '../resolution/docs-resolver.js';
 import type { TransportRouter } from '../../transports/index.js';
 import { assertSafeOutputPath } from '../resolution/docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
-import { resolveSystemPrompt } from '../../platform/index.js';
+import { DEFAULT_MODEL_IDS, resolveSystemPrompt } from '../../platform/index.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { retryWithBackoff } from '../../../utils/rate-limiter.js';
 import { withTimeout } from '../../../utils/with-timeout.js';
@@ -685,6 +685,9 @@ export interface DocCoherenceReviewParams {
   timeoutMs?: number;
 }
 
+/** Model of the coherence-review agent: what runs is what gets recorded. */
+const COHERENCE_MODEL = DEFAULT_MODEL_IDS.quality;
+
 /**
  * Single-pass Sonnet agent that reviews all doc pages for cross-page
  * coherence issues and fixes them using Write tools.
@@ -720,7 +723,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
   const files = collectMarkdownFiles(outputDir);
   // Coherence review is a single-purpose agent — allow 50% of context for doc injection.
   // getDocTokenBudget returns 20% (DOC_BUDGET_RATIO). Multiply by 2.5 to get 50%.
-  const tokenBudget = Math.round(getDocTokenBudget('claude-sonnet-4-6') * 2.5);
+  const tokenBudget = Math.round(getDocTokenBudget(COHERENCE_MODEL) * 2.5);
   const allContent = files.map(f => {
     const relPath = relative(outputDir, f.fullPath);
     return `<file path="${relPath}">\n${f.content}\n</file>`;
@@ -785,7 +788,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
   const allowedTools = contentInjected ? ['Write'] : ['Read', 'Write'];
 
   // Run the Sonnet agent — single pass (acquire router slot so UI shows 1/N active)
-  const slot = await router?.acquireSlot('claude-sonnet-4-6');
+  const slot = await router?.acquireSlot(COHERENCE_MODEL);
   let success = false;
   let failErr: unknown;
   const ac = abortController ?? new AbortController();
@@ -803,7 +806,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
           prompt: userMessage,
           options: {
             systemPrompt,
-            model: 'sonnet',
+            model: COHERENCE_MODEL,
             cwd: outputDir,
             allowedTools,
             permissionMode: 'bypassPermissions' as const,
@@ -911,7 +914,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
   // ndjson sum).
   recordLlmCall({
     provider: 'anthropic',
-    model: 'claude-sonnet-4-6',
+    model: COHERENCE_MODEL,
     inputTokens,
     outputTokens,
     cacheReadTokens,
@@ -927,7 +930,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
       event: 'llm_call',
       phase: 'coherence-review',
       provider: 'anthropic',
-      model: 'claude-sonnet-4-6',
+      model: COHERENCE_MODEL,
       inputTokens,
       outputTokens,
       cacheHit: cacheReadTokens > 0,
@@ -951,7 +954,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
     const header = [
       `# Coherence Review — ${timestamp}`,
       '',
-      `- **Model:** sonnet (single pass)`,
+      `- **Model:** ${COHERENCE_MODEL} (single pass)`,
       `- **Content injected:** ${contentInjected} (${contentTokens} tokens, budget ${tokenBudget})`,
       `- **Tools:** ${allowedTools.join(', ')}`,
       `- **Duration:** ${(durationMs / 1000).toFixed(1)}s`,

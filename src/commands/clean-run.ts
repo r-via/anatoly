@@ -208,7 +208,7 @@ export function registerCleanRunCommand(program: Command): void {
     .command('run <target>')
     .description('Run clean loop to remediate findings (axis name, "all", or shard file path)')
     .option('-n, --iterations <n>', 'max clean loop iterations', '50')
-    .option('-m, --model <model>', 'Claude model to use (e.g. claude-opus-4-6, claude-sonnet-4-6)')
+    .option('-m, --model <model>', 'Claude model to use (e.g. claude-opus-5-5, claude-sonnet-5-5)')
     .action(async (target: string, opts: { iterations: string; model?: string }) => {
       const projectRoot = process.cwd();
 

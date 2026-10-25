@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { anatolyPath } from '../../../utils/anatoly-paths.js';
+import { DEFAULT_MODEL_IDS } from '../../platform/index.js';
 import { type ProjectProfile, type ProjectType } from '../../scanning/index.js';
 import { scaffoldDocs, buildPageList, type ScaffoldResult, type PageDef } from './doc-scaffolder.js';
 import { resolveModuleGranularity, extractModuleName, type ModuleDir } from '../../scanning/index.js';
@@ -215,7 +216,7 @@ export function runDocGeneration(
     if (!mapping) continue;
 
     const sourceFiles = loadSourceFiles(projectRoot, mapping.sourceFiles);
-    const pageContext = buildPageContext(pagePath, sourceFiles, { maxTokens: getDocTokenBudget('claude-sonnet-4-6') });
+    const pageContext = buildPageContext(pagePath, sourceFiles, { maxTokens: getDocTokenBudget(DEFAULT_MODEL_IDS.quality) });
     const pageInfo: PageInfo = {
       path: pagePath,
       title: pagePath.split('/').pop()?.replace('.md', '') ?? pagePath,

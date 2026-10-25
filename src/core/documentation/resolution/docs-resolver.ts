@@ -23,16 +23,26 @@ export const DOC_BUDGET_RATIO = 0.20;
 
 /** Model context window sizes (tokens). */
 const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
+  'claude-opus-5-5': 1_000_000,
+  'claude-sonnet-5-5': 1_000_000,
+  'claude-haiku-5-5': 1_000_000,
   'claude-opus-4-6': 1_000_000,
   'claude-sonnet-4-6': 200_000,
   'claude-haiku-4-5-20251001': 200_000,
 };
 const DEFAULT_CONTEXT_WINDOW = 200_000;
 
-/** Compute max doc tokens from model context window (20% of window). */
+/**
+ * Ceiling on the doc budget, whatever the window. 1M-context models would
+ * otherwise inject 5× more source per doc page than the 200K-window budget
+ * the doc pipeline was tuned on. Raise only with a bench (cost + quality).
+ */
+export const MAX_DOC_TOKEN_BUDGET = 40_000;
+
+/** Compute max doc tokens from model context window (20% of window, capped). */
 export function getDocTokenBudget(model?: string): number {
   const window = (model ? MODEL_CONTEXT_WINDOWS[model] : undefined) ?? DEFAULT_CONTEXT_WINDOW;
-  return Math.round(window * DOC_BUDGET_RATIO);
+  return Math.min(Math.round(window * DOC_BUDGET_RATIO), MAX_DOC_TOKEN_BUDGET);
 }
 
 // ---------------------------------------------------------------------------

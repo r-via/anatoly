@@ -198,8 +198,8 @@ describe('buildProviderChecks (v2 fallback)', () => {
     const config = makeConfig();
     const checks = buildProviderChecks(config);
     const models = checks.map(c => c.model);
-    expect(models).toContain('anthropic/claude-sonnet-4-6');
-    expect(models).toContain('anthropic/claude-opus-4-6');
+    expect(models).toContain('anthropic/claude-sonnet-5-5');
+    expect(models).toContain('anthropic/claude-opus-5-5');
   });
 
   it('deduplicates models', () => {
@@ -215,7 +215,7 @@ describe('buildProviderChecks (v2 fallback)', () => {
     const config = makeConfig();
     const checks = buildProviderChecks(config);
     const models = checks.map(c => c.model);
-    expect(models).toContain('anthropic/claude-haiku-4-5-20251001');
+    expect(models).toContain('anthropic/claude-haiku-5-5');
   });
 });
 

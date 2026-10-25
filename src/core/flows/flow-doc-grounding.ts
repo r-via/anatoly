@@ -21,7 +21,7 @@
  */
 
 import { anatolyPath } from '../../utils/anatoly-paths.js';
-import { resolveSystemPrompt } from '../platform/index.js';
+import { DEFAULT_MODEL_IDS, resolveSystemPrompt } from '../platform/index.js';
 import type { UserFlow } from '../../schemas/user-flow.js';
 
 /** The well-known narrated-page filename under `.anatoly/state/internal-flows/`. */
@@ -136,7 +136,7 @@ export interface FlowDocPrompt {
 /** Options for {@link buildFlowDocPrompt}. */
 export interface BuildFlowDocPromptOptions {
   caps?: FlowDocCaps;
-  /** Override the writer model (default `sonnet`). */
+  /** Override the writer model (default: the quality-tier default). */
   model?: string;
 }
 
@@ -156,6 +156,6 @@ export function buildFlowDocPrompt(
   return {
     system: resolveSystemPrompt('doc-generation.flow'),
     user: grounding,
-    model: opts.model ?? 'sonnet',
+    model: opts.model ?? DEFAULT_MODEL_IDS.quality,
   };
 }
