@@ -240,6 +240,24 @@ describe('adaptV3ToV2 — models', () => {
       code_summary: 'anthropic/claude-haiku-4-5-20251001',
     });
   });
+
+  it('maps routing.effort to models.effort (summarization → code_summary)', () => {
+    const v3 = fullV3() as { routing: Record<string, unknown> };
+    v3.routing.effort = { quality: 'xhigh', summarization: 'low' };
+    const { v2, parsed } = adapt(v3);
+    expect(v2.models.effort).toEqual({
+      quality: 'xhigh',
+      fast: undefined,
+      deliberation: undefined,
+      code_summary: 'low',
+    });
+    expect((parsed as { models: { effort?: unknown } }).models.effort).toMatchObject({ quality: 'xhigh', code_summary: 'low' });
+  });
+
+  it('leaves models.effort unset when routing.effort is absent', () => {
+    const { v2 } = adapt(fullV3());
+    expect(v2.models.effort).toBeUndefined();
+  });
 });
 
 describe('adaptV3ToV2 — agents', () => {

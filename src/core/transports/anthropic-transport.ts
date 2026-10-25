@@ -19,6 +19,7 @@ import { AnatolyError, ERROR_CODES, isAuthFailureMessage, authError, isRateLimit
 import { RateLimitStandbyError } from '../../utils/rate-limiter.js';
 import { contextLogger } from '../../utils/log-context.js';
 import { initConvDump, appendResult, appendError, type ConvDump } from './conversation-dump.js';
+import { resolveModelEffort, type Config } from '../../schemas/config.js';
 
 // ---------------------------------------------------------------------------
 // Transcript formatting (extracted from axis-evaluator.ts)
@@ -82,6 +83,13 @@ function formatMessage(message: SDKMessage): string {
 export class AnthropicTransport implements LlmTransport {
   readonly provider = 'anthropic' as const;
 
+  /**
+   * @param config - Source of the per-tier reasoning effort sent on every
+   *   call (see {@link resolveModelEffort}). Without it, calls use the
+   *   quality-tier default.
+   */
+  constructor(private readonly config?: Config) {}
+
   supports(model: string): boolean {
     return extractProvider(model) === 'anthropic';
   }
@@ -144,6 +152,8 @@ export class AnthropicTransport implements LlmTransport {
       options: {
         ...(systemPrompt ? { systemPrompt } : {}),
         model,
+        // Explicit, never the CLI's per-model default (medium on 5.5, ANA-4).
+        effort: resolveModelEffort(this.config, rawModel),
         cwd: projectRoot,
         allowedTools: opts.allowedTools,
         maxTurns: opts.maxTurns,

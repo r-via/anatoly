@@ -20,7 +20,7 @@ import { VercelSdkTransport } from './vercel-sdk-transport.js';
 /** Build a mode-aware router from the loaded config. */
 export function createCliRouter(config: Config): TransportRouter {
   const nativeTransports: Record<string, LlmTransport> = {
-    anthropic: new AnthropicTransport(),
+    anthropic: new AnthropicTransport(config),
   };
   const providerModes: Record<string, ProviderModeConfig> = {};
   for (const [id, prov] of Object.entries(config.providers)) {

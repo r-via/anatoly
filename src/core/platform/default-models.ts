@@ -18,14 +18,34 @@ export const DEFAULT_MODELS = {
   deliberation: 'anthropic/claude-opus-5-5',
 } as const;
 
-const bareId = (ref: string): string => ref.slice(ref.indexOf('/') + 1);
+/** Strip the provider prefix from a model ref (`anthropic/x` → `x`); bare ids pass through. */
+export const bareModelId = (ref: string): string => ref.slice(ref.indexOf('/') + 1);
 
 /**
  * The same defaults without the provider prefix (e.g. `claude-sonnet-5-5`),
  * for direct SDK calls and lookup tables keyed by bare model id.
  */
 export const DEFAULT_MODEL_IDS = {
-  quality: bareId(DEFAULT_MODELS.quality),
-  fast: bareId(DEFAULT_MODELS.fast),
-  deliberation: bareId(DEFAULT_MODELS.deliberation),
+  quality: bareModelId(DEFAULT_MODELS.quality),
+  fast: bareModelId(DEFAULT_MODELS.fast),
+  deliberation: bareModelId(DEFAULT_MODELS.deliberation),
 } as const;
+
+/** Reasoning effort levels accepted by the Claude API (`output_config.effort`). */
+export const EFFORT_LEVELS = ['low', 'medium', 'high', 'xhigh', 'max'] as const;
+export type EffortLevel = (typeof EFFORT_LEVELS)[number];
+
+/**
+ * Default reasoning effort per tier, sent explicitly on every Claude Agent
+ * SDK call. Left unset, the bundled CLI picks it per model: `high` for the
+ * 4.6 models but `medium` for the 5.5 ones, which cost 0.15 F1 on the
+ * slot-engine bench (ANA-4). `high` everywhere is the measured configuration
+ * and what the 4.6 models already received. The CLI drops the field for
+ * models without effort support (Haiku 4.5) and clamps unsupported levels.
+ */
+export const DEFAULT_EFFORT = {
+  quality: 'high',
+  fast: 'high',
+  deliberation: 'high',
+  code_summary: 'high',
+} as const satisfies Record<string, EffortLevel>;

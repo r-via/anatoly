@@ -3,7 +3,7 @@
 // See LICENSE and COMMERCIAL.md for licensing details.
 
 import { z } from 'zod';
-import { DEFAULT_MODELS } from '../core/platform/index.js';
+import { DEFAULT_EFFORT, DEFAULT_MODELS, EFFORT_LEVELS, bareModelId, type EffortLevel } from '../core/platform/index.js';
 
 export const ProjectConfigSchema = z.object({
   name: z.string().optional(),
@@ -101,11 +101,22 @@ export const ProvidersConfigSchema = z.object({
 
 // --- v1.0 Models ---
 
+export const EffortLevelSchema = z.enum(EFFORT_LEVELS);
+
+/** Per-tier reasoning effort overrides; absent tiers use {@link DEFAULT_EFFORT}. */
+export const EffortConfigSchema = z.object({
+  quality: EffortLevelSchema.optional(),
+  fast: EffortLevelSchema.optional(),
+  deliberation: EffortLevelSchema.optional(),
+  code_summary: EffortLevelSchema.optional(),
+});
+
 export const ModelsConfigSchema = z.object({
   quality: z.string().default(DEFAULT_MODELS.quality),
   fast: z.string().default(DEFAULT_MODELS.fast),
   deliberation: z.string().default(DEFAULT_MODELS.deliberation),
   code_summary: z.string().optional(),
+  effort: EffortConfigSchema.optional(),
 });
 
 /**
@@ -417,6 +428,36 @@ export function resolveCommandModel(config: Config, command: string): string {
   const c = config.commands;
   const perCommand = c ? (c as Record<string, string | undefined>)[command] : undefined;
   return perCommand ?? c?.model ?? config.models.quality;
+}
+
+const EFFORT_TIERS = ['quality', 'fast', 'deliberation', 'code_summary'] as const;
+
+/**
+ * Resolve the reasoning effort for a call on `model`.
+ *
+ * The tier is recovered from the model: every tier the model serves is
+ * considered (`code_summary` falls back to `fast`, as for the model itself).
+ * When several match, the explicitly configured ones decide and the highest
+ * wins, so a model shared by two tiers never runs below either; a tier left
+ * unset only contributes its default when none of them is configured (so
+ * `fast: low` is not overridden by an unset `code_summary` on the same
+ * model). A model serving no tier (an `axes.<axis>.model` override, a
+ * command model) gets the quality tier's effort. Without a config, the
+ * quality default applies.
+ */
+export function resolveModelEffort(config: Config | undefined, model: string): EffortLevel {
+  const configured = config?.models.effort;
+  const effortOf = (tier: (typeof EFFORT_TIERS)[number]): EffortLevel =>
+    configured?.[tier] ?? DEFAULT_EFFORT[tier];
+  if (!config) return effortOf('quality');
+  const target = bareModelId(model);
+  const refs = { ...config.models, code_summary: config.models.code_summary ?? config.models.fast };
+  const matched = EFFORT_TIERS.filter((tier) => bareModelId(refs[tier]) === target);
+  if (matched.length === 0) return effortOf('quality');
+  const explicit = matched.filter((tier) => configured?.[tier] !== undefined);
+  return (explicit.length > 0 ? explicit : matched)
+    .map(effortOf)
+    .reduce((a, b) => (EFFORT_LEVELS.indexOf(b) > EFFORT_LEVELS.indexOf(a) ? b : a));
 }
 
 /**

@@ -18,6 +18,7 @@ import type { TransportRouter } from '../../transports/index.js';
 import { assertSafeOutputPath } from '../resolution/docs-guard.js';
 import type { PagePrompt } from './doc-generator.js';
 import { DEFAULT_MODEL_IDS, resolveSystemPrompt } from '../../platform/index.js';
+import { resolveModelEffort, type Config } from '../../../schemas/config.js';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { retryWithBackoff } from '../../../utils/rate-limiter.js';
 import { withTimeout } from '../../../utils/with-timeout.js';
@@ -670,6 +671,8 @@ export interface DocCoherenceReviewParams {
   abortController?: AbortController;
   logDir?: string;
   router?: TransportRouter;
+  /** Source of the reasoning effort; without it, the quality-tier default. */
+  config?: Config;
   callbacks?: {
     onToolUse?: (tool: string, filePath: string) => void;
   };
@@ -708,6 +711,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
     abortController,
     logDir,
     router,
+    config,
     callbacks,
     referenceDocs,
     codeSurface,
@@ -807,6 +811,7 @@ async function runDocCoherenceReviewImpl(params: DocCoherenceReviewParams): Prom
           options: {
             systemPrompt,
             model: COHERENCE_MODEL,
+            effort: resolveModelEffort(config, COHERENCE_MODEL),
             cwd: outputDir,
             allowedTools,
             permissionMode: 'bypassPermissions' as const,

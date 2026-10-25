@@ -242,6 +242,8 @@ async function pingAnthropic(
       options: {
         systemPrompt: 'Respond with exactly "OK" and nothing else.',
         model: bareModel,
+        // A reachability ping, not an audit call: keep it cheap and explicit.
+        effort: 'low',
         cwd: projectRoot,
         allowedTools: [],
         maxTurns: 1,

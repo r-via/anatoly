@@ -1141,6 +1141,18 @@ describe('writeFirstRunConfig', () => {
     expect(content).toContain('# Documentation axis:');
   });
 
+  it('documents routing.effort as a commented hint that parses once uncommented', async () => {
+    await writeFirstRunConfig(dir, { tier: 'lite' });
+    const path = join(dir, '.anatoly.yml');
+    const content = readFileSync(path, 'utf-8');
+    expect(content).toContain('#   effort:');
+    expect(content).toContain('#     quality: high');
+    writeFileSync(path, content.replace(/^# ( {2}effort:| {4}\w+: high)$/gm, '$1'));
+    const { loadConfig } = await import('../utils/config-loader.js');
+    const config = loadConfig(dir);
+    expect(config.models.effort).toMatchObject({ quality: 'high', fast: 'high', deliberation: 'high', code_summary: 'high' });
+  });
+
   it('full annotated YAML still parses to a valid v3 (commented sections are inert)', async () => {
     await writeFirstRunConfig(dir, { tier: 'lite' });
     const { loadConfig } = await import('../utils/config-loader.js');

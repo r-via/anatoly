@@ -77,7 +77,7 @@ export function registerWatchCommand(program: Command): void {
         if (prov) _watchProvModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
       }
       const _watchNativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
-        anthropic: new AnthropicTransport(),
+        anthropic: new AnthropicTransport(config),
       };
       const watchRouter = new TransportRouter({
         nativeTransports: _watchNativeTransports,

@@ -227,6 +227,7 @@ async function runDocUpdate(
       projectRoot: ctx.projectRoot,
       docsPath: ctx.docsPath,
       router: ctx.router,
+      config: ctx.config,
       logDir: structLogDir,
       callbacks: {
         onToolUse: (_tool, filePath) => {
@@ -424,6 +425,7 @@ export function registerDocsCommand(program: Command): void {
               projectRoot: ctx.projectRoot,
               docsPath: ctx.docsPath,
               router: ctx.router,
+              config: ctx.config,
               logDir: coherenceLogDir,
               callbacks: {
                 onToolUse: (_tool, filePath) => {
@@ -673,6 +675,7 @@ export function registerDocsCommand(program: Command): void {
           outputDir: docsDir,
           projectRoot,
           docsPath,
+          config,
           logDir: coherenceLogDir,
           callbacks: {
             onToolUse: (_tool, filePath) => {

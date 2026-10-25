@@ -37,6 +37,7 @@ import {
   SearchConfigSchema,
   NotificationsConfigSchema,
   InvariantsConfigSchema,
+  EffortLevelSchema,
 } from './config.js';
 
 // ---------------------------------------------------------------------------
@@ -254,9 +255,21 @@ export const EmbeddingsRoutingSchema = z.object({
 
 export type EmbeddingsRouting = z.infer<typeof EmbeddingsRoutingSchema>;
 
+/**
+ * Reasoning effort per generation slot (`low` … `max`), sent explicitly on
+ * every Claude call. Absent slots default to `high` (see DEFAULT_EFFORT).
+ */
+export const EffortRoutingSchema = z.object({
+  quality: EffortLevelSchema.optional(),
+  fast: EffortLevelSchema.optional(),
+  deliberation: EffortLevelSchema.optional(),
+  summarization: EffortLevelSchema.optional(),
+});
+
 export const RoutingConfigSchema = z.object({
   generation: GenerationRoutingSchema,
   embeddings: EmbeddingsRoutingSchema,
+  effort: EffortRoutingSchema.optional(),
 });
 
 export type RoutingConfig = z.infer<typeof RoutingConfigSchema>;

@@ -11,6 +11,7 @@ import type { LlmTransport, LlmResponse } from './index.js';
 import { TransportRouter } from './index.js';
 import { AnthropicTransport } from './anthropic-transport.js';
 import { withLlmCallSink } from '../../utils/llm-calls-sink.js';
+import { parseTestConfig } from '../../schemas/test-fixtures.js';
 
 vi.mock('@anthropic-ai/claude-agent-sdk', () => ({
   query: vi.fn(),
@@ -249,6 +250,55 @@ describe('runSingleTurnQuery transport integration', () => {
 // token count on every Anthropic call. This test guards against any future
 // rename or accidental cast that would re-introduce the same silent miss.
 // ---------------------------------------------------------------------------
+
+describe('AnthropicTransport — reasoning effort', () => {
+  async function effortSentFor(transport: AnthropicTransport, model: string, agentic = false): Promise<unknown> {
+    const sdk = await import('@anthropic-ai/claude-agent-sdk');
+    const mockedQuery = sdk.query as unknown as Mock;
+    async function* messageStream() {
+      yield { type: 'result', subtype: 'success', result: 'ok', session_id: 's', total_cost_usd: 0, duration_ms: 1, usage: {} };
+    }
+    mockedQuery.mockReturnValueOnce(messageStream());
+    const params = {
+      systemPrompt: 'sys',
+      userMessage: 'msg',
+      model,
+      projectRoot: '/tmp',
+      abortController: new AbortController(),
+    };
+    if (agentic) {
+      await transport.agenticQuery({ ...params, allowedTools: ['Read'], maxTurns: 3, config: parseTestConfig({}) });
+    } else {
+      await transport.query(params);
+    }
+    return (mockedQuery.mock.calls.at(-1)![0] as { options: { effort?: unknown } }).options.effort;
+  }
+
+  const config = parseTestConfig({
+    models: {
+      quality: 'anthropic/claude-sonnet-5-5',
+      fast: 'anthropic/claude-haiku-5-5',
+      deliberation: 'anthropic/claude-opus-5-5',
+      effort: { quality: 'xhigh', fast: 'low', deliberation: 'max', code_summary: 'low' },
+    },
+  });
+
+  it('sends the effort of each tier the model serves', async () => {
+    const transport = new AnthropicTransport(config);
+    expect(await effortSentFor(transport, 'anthropic/claude-sonnet-5-5')).toBe('xhigh');
+    expect(await effortSentFor(transport, 'anthropic/claude-haiku-5-5')).toBe('low');
+    expect(await effortSentFor(transport, 'anthropic/claude-opus-5-5', true)).toBe('max');
+  });
+
+  it('sends the high default when no effort is configured', async () => {
+    const transport = new AnthropicTransport(parseTestConfig({}));
+    expect(await effortSentFor(transport, 'anthropic/claude-sonnet-5-5')).toBe('high');
+  });
+
+  it('still sends an explicit effort without a config', async () => {
+    expect(await effortSentFor(new AnthropicTransport(), 'claude-sonnet-5-5')).toBe('high');
+  });
+});
 
 describe('AnthropicTransport — SDK usage extraction', () => {
   it('extracts camelCase token fields from SDKResultSuccess.usage into LlmResponse', async () => {

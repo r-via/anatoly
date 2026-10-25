@@ -669,7 +669,7 @@ export function registerRunCommand(program: Command): void {
 
       // Build mode-aware transport router
       const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
-        anthropic: new AnthropicTransport(),
+        anthropic: new AnthropicTransport(config),
       };
       const _providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
       for (const [id, prov] of Object.entries(config.providers)) {

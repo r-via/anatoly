@@ -245,6 +245,7 @@ async function runDocLlmPhase(ctx: RunContext, handoff: Handoff, taskId = 'doc-g
             abortController: ac,
             logDir: coherenceLogDir,
             router: ctx.router,
+            config: ctx.config,
             timeoutMs,
             codeSurface: buildCodeSurfaceSummary(handoff.allTasks),
             callbacks: {

@@ -21,6 +21,7 @@
  *   base_url) is kept since v2 supports it through `rag.embedding`.
  * - `routing.generation.{quality,fast,deliberation,summarization}` → `models.*`
  *   (with `summarization` mapped to `models.code_summary`).
+ * - `routing.effort.*` → `models.effort.*` (same slot renaming).
  * - `routing.embeddings.{code,text}` → `rag.embedding.{code,nlp}` for network
  *   providers; for ONNX providers the model id is set on `rag.{code,nlp}_model`.
  * - `evaluation.axes.<id>` (bool or object) → `axes.<id>` with `enabled`/`model`/
@@ -58,6 +59,15 @@ export function adaptV3ToV2(v3: ConfigV3): LooseRecord {
     deliberation: v3.routing.generation.deliberation,
     code_summary: v3.routing.generation.summarization,
   };
+  const effort = v3.routing.effort;
+  if (effort) {
+    v2.models.effort = {
+      quality: effort.quality,
+      fast: effort.fast,
+      deliberation: effort.deliberation,
+      code_summary: effort.summarization,
+    };
+  }
 
   // 3. agents.max_turns lives at v3.runtime.agents.max_turns
   v2.agents = {

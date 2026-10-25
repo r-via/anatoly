@@ -9,6 +9,7 @@ import {
   AxisConfigSchema,
   GenericProviderConfigSchema,
   resolveCommandModel,
+  resolveModelEffort,
   type Config,
 } from './config.js';
 
@@ -757,5 +758,66 @@ describe('resolveCommandModel', () => {
 
   it('falls back to models.quality when the command has no override and no default', () => {
     expect(resolveCommandModel(base({ refresh: 'p/refresh' }), 'scope')).toBe('p/quality');
+  });
+});
+
+describe('resolveModelEffort', () => {
+  const withEffort = (effort?: unknown, codeSummary?: string): Config => parseTestConfig({
+    models: {
+      quality: 'anthropic/claude-sonnet-5-5',
+      fast: 'anthropic/claude-haiku-5-5',
+      deliberation: 'anthropic/claude-opus-5-5',
+      ...(codeSummary ? { code_summary: codeSummary } : {}),
+      ...(effort ? { effort } : {}),
+    },
+  });
+
+  it('defaults every tier to high', () => {
+    const config = withEffort();
+    for (const model of ['anthropic/claude-sonnet-5-5', 'anthropic/claude-haiku-5-5', 'anthropic/claude-opus-5-5']) {
+      expect(resolveModelEffort(config, model)).toBe('high');
+    }
+  });
+
+  it('returns the configured effort of the tier the model serves, prefixed or bare', () => {
+    const config = withEffort({ quality: 'xhigh', fast: 'low', deliberation: 'max' });
+    expect(resolveModelEffort(config, 'anthropic/claude-sonnet-5-5')).toBe('xhigh');
+    expect(resolveModelEffort(config, 'claude-sonnet-5-5')).toBe('xhigh');
+    expect(resolveModelEffort(config, 'anthropic/claude-opus-5-5')).toBe('max');
+  });
+
+  it('keeps the default for a tier left unset next to configured ones', () => {
+    const config = withEffort({ quality: 'medium' });
+    expect(resolveModelEffort(config, 'anthropic/claude-opus-5-5')).toBe('high');
+  });
+
+  it('takes the highest configured effort when one model serves several tiers', () => {
+    // code_summary falls back to fast: Haiku serves both.
+    const config = withEffort({ fast: 'low', code_summary: 'medium' });
+    expect(resolveModelEffort(config, 'anthropic/claude-haiku-5-5')).toBe('medium');
+  });
+
+  it('does not let an unset tier override a configured one on a shared model', () => {
+    const config = withEffort({ fast: 'low' });
+    expect(resolveModelEffort(config, 'anthropic/claude-haiku-5-5')).toBe('low');
+  });
+
+  it('applies code_summary to a dedicated summary model', () => {
+    const config = withEffort({ code_summary: 'low' }, 'anthropic/claude-haiku-4-5-20251001');
+    expect(resolveModelEffort(config, 'anthropic/claude-haiku-4-5-20251001')).toBe('low');
+    expect(resolveModelEffort(config, 'anthropic/claude-haiku-5-5')).toBe('high');
+  });
+
+  it('gives a model serving no tier the quality effort', () => {
+    const config = withEffort({ quality: 'xhigh' });
+    expect(resolveModelEffort(config, 'anthropic/claude-fable-5-1')).toBe('xhigh');
+  });
+
+  it('uses the quality default without a config', () => {
+    expect(resolveModelEffort(undefined, 'claude-sonnet-5-5')).toBe('high');
+  });
+
+  it('rejects an unknown effort level', () => {
+    expect(() => withEffort({ quality: 'extreme' })).toThrow();
   });
 });

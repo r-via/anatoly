@@ -28,7 +28,7 @@ import { PipelineState } from './pipeline-state.js';
 import { ScreenRenderer } from './screen-renderer.js';
 import { printBanner } from '../utils/banner.js';
 import { loadConfig } from '../utils/config-loader.js';
-import { getDocsDir, type Config } from '../schemas/config.js';
+import { getDocsDir, resolveModelEffort, type Config } from '../schemas/config.js';
 import { detectProjectProfile, formatLanguageLine, formatFrameworkLine, type ProjectProfile } from '../core/scanning/index.js';
 import type { DocExecutor } from '../core/documentation/index.js';
 import { retryWithBackoff, RateLimitStandbyError } from '../utils/rate-limiter.js';
@@ -169,7 +169,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
 
   // Build mode-aware transport router
   const nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
-    anthropic: new AnthropicTransport(),
+    anthropic: new AnthropicTransport(config),
   };
   const providerModes: Record<string, import('../core/transports/index.js').ProviderModeConfig> = {};
   for (const [id, prov] of Object.entries(config.providers)) {
@@ -181,7 +181,7 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
     providerModes,
   });
 
-  const executor = createExecutor(projectRoot);
+  const executor = createExecutor(projectRoot, config);
 
   let totalCostUsd = 0;
   const startTime = Date.now();
@@ -270,10 +270,10 @@ export async function runPipeline(opts: PipelineOptions): Promise<PipelineResult
  * their own concurrency control to avoid deadlocks.
  *
  * @param projectRoot - Absolute path used as the SDK working directory.
- * @param _semaphore - Reserved for future use; concurrency is managed externally.
+ * @param config - Source of the per-tier reasoning effort sent on each call.
  * @returns An async executor function conforming to the {@link DocExecutor} contract.
  */
-function createExecutor(projectRoot: string): DocExecutor {
+function createExecutor(projectRoot: string, config: Config): DocExecutor {
   // Note: semaphore is NOT acquired here — callers (executeDocPrompts, runDocUpdate)
   // handle their own concurrency control. Acquiring here would cause deadlocks.
   return async ({ system, user, model }) => {
@@ -284,6 +284,7 @@ function createExecutor(projectRoot: string): DocExecutor {
           options: {
             systemPrompt: system,
             model,
+            effort: resolveModelEffort(config, model),
             cwd: projectRoot,
             allowedTools: [],
             permissionMode: 'bypassPermissions' as const,

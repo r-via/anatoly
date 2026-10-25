@@ -121,7 +121,7 @@ export function registerReviewCommand(program: Command): void {
           if (prov) _provModes[id] = { mode: prov.mode, single_turn: prov.single_turn, agents: prov.agents };
         }
         const _nativeTransports: Record<string, import('../core/transports/index.js').LlmTransport> = {
-          anthropic: new AnthropicTransport(),
+          anthropic: new AnthropicTransport(config),
         };
         const reviewRouter = new TransportRouter({
           nativeTransports: _nativeTransports,
