@@ -103,11 +103,13 @@ Anatoly is benchmarked against [anatoly-bench](https://github.com/r-via/anatoly-
 
 ```mermaid
 xychart-beta
-    title "slot-engine fixture, global F1 (%) per Anatoly version"
-    x-axis [v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17]
+    title "slot-engine fixture, global F1 (%) per bench run"
+    x-axis [v2, v3, v4, v5, v6, v7, v8, v9, v10, v11, v12, v13, v14, v15, v16, v17, v18, v19, v20, v21, v22, v23, v24, v25, v26, v27, v28, v29, v30, v31, v32, v33, v34, v35, v36, v37, v37b, v38, v39, v40, v41, v42, v43, v44, v45, v46, v47, v47b, v48, v49, v50, v50b, v51, v52, v52b, v53, v54, v56, v57, v58, v59, v60, v61, v62, v63, v64, v65, v66, v67]
     y-axis "F1 (%)" 0 --> 100
-    line [40.7, 43.2, 46.8, 43.5, 56.8, 65.5, 62.7, 61.0, 65.0, 57.8, 67.8, 63.8, 72.9, 64.2, 69.9, 65.5]
+    line [40.7, 43.2, 46.8, 43.5, 56.8, 65.5, 62.7, 61.0, 65.0, 57.8, 67.8, 63.8, 72.9, 64.2, 69.9, 65.5, 71.4, 69.7, 67.0, 66.2, 69.4, 68.8, 68.7, 67.8, 58.3, 56.2, 67.3, 71.5, 57.9, 62.1, 71.6, 57.5, 71.5, 70.4, 74.3, 65.8, 70.2, 72.2, 67.9, 67.6, 68.0, 76.5, 72.3, 62.8, 74.6, 75.5, 70.1, 75.5, 62.8, 70.9, 69.7, 75.8, 78.3, 73.2, 79.5, 76.3, 73.5, 76.8, 61.4, 73.2, 70.9, 69.5, 66.0, 69.9, 66.9, 72.9, 69.9, 75.1, 68.6]
 ```
+
+The fixture (27 seeded defects) has been frozen since v16, so every later point is Anatoly behaviour plus run-to-run LLM variance (about 9 points on a single run). Best run: 79.5% (v52b). The last twelve points are the move to the Claude 5.5 generation shipped in 0.11.0: at equal reasoning effort and after the prompt recalibration, Sonnet 5.5 scores 69.9% and 75.1% (v65, v66), on par with the Sonnet 4.6 controls of the same day (72.3% mean) at about 40% of the cost and half the wall time.
 
 Per-axis curves, change-log, and remaining misses: [slot-engine results](https://github.com/r-via/anatoly-bench/blob/main/docs/02-slot-engine-results.md).
 
@@ -129,6 +131,8 @@ anatoly run
 - **Claude Code subscription** (default): no API key needed
 - **BYOK**: `ANTHROPIC_API_KEY`, etc.
 - **Local**: Ollama, LM Studio, vLLM
+
+**Default models** (since 0.11.0): Claude Sonnet 5.5 for the review axes, Haiku 5.5 for the mechanical ones, Opus 5.5 for deliberation, every call at `high` reasoning effort. Models and effort are set per tier in `.anatoly.yml`.
 
 See [Installation](docs/01-Getting-Started/01-Installation.md) and [Recommended LLM Setup](docs/01-Getting-Started/03-Recommended-LLM-Setup.md).
 
