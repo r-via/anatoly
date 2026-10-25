@@ -329,4 +329,39 @@ describe('best-practices.system.md — TypeScript base — domain-awareness guid
     expect(prompt.toLowerCase()).toMatch(/consumer|importer|caller/);
     expect(prompt.toLowerCase()).toMatch(/aggreg|collaps|flap|unstable/);
   });
+
+  it('keeps the domain amplifier on primitive choice and routes wrong computed results to correction', () => {
+    // ANA-7: on Sonnet 5.5, rule 13 flipped to FAIL on a file whose only
+    // defects were an inverted house-edge formula and a wrong rounding
+    // direction, both correction-axis findings. The amplifier must not
+    // re-report a wrong result as a security violation; this mirrors the
+    // correction prompt's own primitive-choice carve-out.
+    const section = prompt.slice(prompt.indexOf('Apply industry-specific'));
+    expect(section).toMatch(/WRONG RESULT/);
+    expect(section).toMatch(/correction axis/i);
+    expect(section).toMatch(/persisted, transferred, or reconciled/);
+  });
+});
+
+describe('best-practices.system.md — TypeScript base — FAIL/WARN calibration', () => {
+  let prompt: string;
+
+  beforeAll(() => {
+    _resetPromptRegistry();
+    prompt = resolveSystemPrompt('best_practices');
+  });
+
+  it('tells the model that only FAIL rules surface as findings', () => {
+    // render-axis.ts lists FAIL rules only; WARN stays in the per-file review.
+    expect(prompt).toMatch(/Only FAIL rules surface as findings/);
+  });
+
+  it('gives rule 9 a numeric FAIL threshold consistent with the score calibration', () => {
+    expect(prompt).toMatch(/Rule 9 \(JSDoc\): FAIL when three or more public exports lack JSDoc/);
+    expect(prompt).toMatch(/missing JSDoc on 3\+ public exports/);
+  });
+
+  it('reserves rule 15 FAIL for files with no testability seam at all', () => {
+    expect(prompt).toMatch(/Rule 15 \(Testability\): FAIL when the file offers no seam at all/);
+  });
 });

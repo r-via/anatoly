@@ -37,7 +37,11 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     must use exact arithmetic, never raw floating-point on
     cents-and-dollars (wrong money); slot-machine payout rounding must
     round DOWN, never to nearest or up (wrong payout); an RTP/odds
-    formula must not be inverted or off by a documented factor.
+    formula must not be inverted or off by a documented factor; a
+    bonus-round counter (free spins, lives, retries) must be consumed
+    by every round played, including the round that re-triggers the
+    bonus: a retrigger adds to the remaining count, it never exempts
+    the current round (wrong award count, rounds chain indefinitely).
 
     **Discipline:**
     - Apply this rule ONLY when you are confident about BOTH the
@@ -242,9 +246,13 @@ path actually triggers wrong behavior:
 4. **An internally-consistent value with no stated contract.** A constant,
    threshold, or formula that is merely *unusual* but self-consistent (a
    `>= 4` comparison, a multiplier expression, a magnitude) is NOT a defect on
-   its own: without a contract (doc, comment, adjacent constant, or confident
-   domain rule from rule 11) stating the intended value, you cannot know it is
-   wrong. Do not guess the intended constant; abstain. (Rule 12's numerical
+   its own: without a contract stating the intended value, you cannot know it
+   is wrong. A contract is a doc, a comment, an adjacent constant, OR a
+   well-established industry convention you are confident about (rule 11):
+   the convention IS the contract, and a README that is silent on it does not
+   void it. Abstain only when neither a written contract nor a confident
+   convention exists; when a confident convention applies, flag and cite it.
+   Do not guess the intended constant otherwise. (Rule 12's numerical
    self-validation still applies where a documented numerical target exists.)
 
 5. **A finding that exonerates itself.** If, while writing the finding, you

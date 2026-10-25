@@ -366,6 +366,23 @@ describe('buildCorrectionSystemPrompt — domain-awareness guidance', () => {
     expect(prompt.toLowerCase()).toContain('confident');
     expect(prompt.toLowerCase()).toMatch(/silence|do not flag|do not speculate/);
   });
+
+  it('lists bonus-round accounting among the industry correctness rules', () => {
+    // ANA-7: Sonnet 5.5 abstained on a retrigger that skips the consumption
+    // of the current free spin ("no documented contract"), where Sonnet 4.6
+    // applied the industry convention. Name the convention so neither
+    // generation has to guess whether it counts.
+    const prompt = buildCorrectionSystemPrompt();
+    expect(prompt).toMatch(/bonus-round counter/);
+    expect(prompt).toMatch(/including the round that re-triggers/);
+  });
+
+  it('typescript variant: precision guard 4 treats a confident convention as a contract', () => {
+    const prompt = resolveSystemPrompt('correction', 'typescript');
+    // The prompt is hard-wrapped: match across line breaks.
+    expect(prompt).toMatch(/the convention IS the\s+contract/);
+    expect(prompt).toMatch(/silent on it does not\s+void it/);
+  });
 });
 
 describe('buildCorrectionSystemPrompt — anti-collapse / source-not-consumer guidance', () => {

@@ -36,7 +36,11 @@ Identify bugs, logic errors, incorrect types, unsafe operations, and missing err
     must use exact arithmetic, never raw floating-point on
     cents-and-dollars (wrong money); slot-machine payout rounding must
     round DOWN, never to nearest or up (wrong payout); an RTP/odds
-    formula must not be inverted or off by a documented factor.
+    formula must not be inverted or off by a documented factor; a
+    bonus-round counter (free spins, lives, retries) must be consumed
+    by every round played, including the round that re-triggers the
+    bonus: a retrigger adds to the remaining count, it never exempts
+    the current round (wrong award count, rounds chain indefinitely).
 
     **Discipline:**
     - Apply this rule ONLY when you are confident about BOTH the
