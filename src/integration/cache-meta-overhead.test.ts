@@ -20,7 +20,15 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { writeCacheWithMeta, loadCacheWithMeta } from '../utils/cache-meta.js';
 
-const ITERATIONS = 1000;
+// Interleaved rounds, best round kept on each side. A single back-to-back
+// measurement of two 1000-read loops was flaky on shared CI runners (the
+// suite runs ~200 test files in parallel): one scheduling hiccup during the
+// second loop was enough to push the ratio past the threshold (51 %, 149 %).
+// The minimum over rounds discards those hiccups, and alternating which side
+// runs first cancels any first-runner bias (cache warmth, JIT tiering).
+const ROUNDS = 15;
+const READS_PER_ROUND = 200;
+const ITERATIONS = ROUNDS * READS_PER_ROUND;
 
 describe('cache-meta overhead benchmark (Story 52.7)', () => {
   let base: string;
@@ -61,31 +69,43 @@ describe('cache-meta overhead benchmark (Story 52.7)', () => {
       loadCacheWithMeta(metaPath, { schema: 1, promptHash: 'sha256:benchmark-hash' });
     }
 
-    // Benchmark raw reads
-    const rawStart = performance.now();
-    for (let i = 0; i < ITERATIONS; i++) {
-      const raw = readFileSync(rawPath, 'utf-8');
-      JSON.parse(raw);
-    }
-    const rawDuration = performance.now() - rawStart;
+    const timeRaw = (): number => {
+      const start = performance.now();
+      for (let i = 0; i < READS_PER_ROUND; i++) {
+        JSON.parse(readFileSync(rawPath, 'utf-8'));
+      }
+      return performance.now() - start;
+    };
+    const timeMeta = (): number => {
+      const start = performance.now();
+      for (let i = 0; i < READS_PER_ROUND; i++) {
+        loadCacheWithMeta(metaPath, { schema: 1, promptHash: 'sha256:benchmark-hash' });
+      }
+      return performance.now() - start;
+    };
 
-    // Benchmark meta reads
-    const metaStart = performance.now();
-    for (let i = 0; i < ITERATIONS; i++) {
-      loadCacheWithMeta(metaPath, { schema: 1, promptHash: 'sha256:benchmark-hash' });
+    let rawDuration = Infinity;
+    let metaDuration = Infinity;
+    for (let round = 0; round < ROUNDS; round++) {
+      if (round % 2 === 0) {
+        rawDuration = Math.min(rawDuration, timeRaw());
+        metaDuration = Math.min(metaDuration, timeMeta());
+      } else {
+        metaDuration = Math.min(metaDuration, timeMeta());
+        rawDuration = Math.min(rawDuration, timeRaw());
+      }
     }
-    const metaDuration = performance.now() - metaStart;
 
-    // Calculate overhead
+    // Calculate overhead on the best round of each side
     const overhead = ((metaDuration - rawDuration) / rawDuration) * 100;
 
     // Log results for visibility
-    console.log(`Raw: ${rawDuration.toFixed(2)}ms, Meta: ${metaDuration.toFixed(2)}ms, Overhead: ${overhead.toFixed(2)}%`);
+    console.log(`Best of ${ROUNDS} rounds x ${READS_PER_ROUND} reads. Raw: ${rawDuration.toFixed(2)}ms, Meta: ${metaDuration.toFixed(2)}ms, Overhead: ${overhead.toFixed(2)}%`);
 
     // The meta file is slightly larger (has _meta envelope), so some overhead is expected.
     // But it should be minimal since it's just JSON.parse + 2 field checks.
-    // Allow up to 50% since file I/O variance on CI can be significant,
-    // but the primary assertion is the data validates correctly.
+    // Allow up to 50% as headroom for residual I/O variance on CI, but the
+    // primary assertion is the data validates correctly.
     expect(overhead).toBeLessThan(50);
 
     // Verify data integrity
