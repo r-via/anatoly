@@ -17,7 +17,7 @@ import { PRICING_PATHS, _resetPricingCache } from './pricing-cache.js';
 
 let projectRoot: string;
 
-function seedPricing(models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number; source?: string }>): void {
+function seedPricing(models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number; cacheCreation1hInput?: number; source?: string }>): void {
   const pricingPath = PRICING_PATHS.normalized(projectRoot);
   mkdirSync(dirname(pricingPath), { recursive: true });
   writeFileSync(
@@ -132,6 +132,29 @@ describe('calculateCost', () => {
         { read: 0, creation: 0 },
       );
       expect(withZero).toBe(without);
+    });
+
+    it('prices cache writes at the 1-hour rate when ttl is 1h', () => {
+      seedPricing({
+        'anthropic/claude-sonnet-5-5': {
+          input: 2, output: 10, cacheReadInput: 0.1, cacheCreationInput: 2.5, cacheCreation1hInput: 4,
+        },
+      });
+      // 100K cache_creation: $0.25 at the 5-minute rate, $0.40 at the 1-hour rate.
+      const fiveMin = calculateCost('anthropic/claude-sonnet-5-5', 0, 0, projectRoot, { creation: 100_000 });
+      const oneHour = calculateCost('anthropic/claude-sonnet-5-5', 0, 0, projectRoot, { creation: 100_000, ttl: '1h' });
+      expect(fiveMin).toBeCloseTo(0.25, 6);
+      expect(oneHour).toBeCloseTo(0.4, 6);
+    });
+
+    it('falls back to the 5-minute rate when the model has no 1-hour rate', () => {
+      seedPricing({
+        'anthropic/claude-sonnet-4-6': {
+          input: 3, output: 15, cacheReadInput: 0.3, cacheCreationInput: 3.75,
+        },
+      });
+      const cost = calculateCost('anthropic/claude-sonnet-4-6', 0, 0, projectRoot, { creation: 100_000, ttl: '1h' });
+      expect(cost).toBeCloseTo(0.375, 6);
     });
   });
 });

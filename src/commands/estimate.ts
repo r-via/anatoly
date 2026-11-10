@@ -567,9 +567,16 @@ export function registerEstimateCommand(program: Command): void {
 
       // docs status — merged into Configuration as a `docs` row.
       const bootstrapNeeded = needsBootstrap(projectRoot);
+      // Internal docs only run in `full` mode (gates.ts: bootstrapDocGate and
+      // internalDocsGate skip `off` and `lite`), and the bootstrap only with
+      // the documentation axis active. The forecast follows the same gates.
+      const internalDocMode = resolveDocMode(config);
+      const docAxisActive = evaluators.some((e) => e.id === 'documentation');
       let docsValue: string;
       if (internalDocsOverride === false) {
         docsValue = 'skipped (--no-internal-docs)';
+      } else if (internalDocMode !== 'full') {
+        docsValue = `skipped (internal docs ${internalDocMode})`;
       } else if (ignoreCache) {
         docsValue = 'forced bootstrap (--no-cache)';
       } else if (bootstrapNeeded) {
@@ -640,9 +647,11 @@ export function registerEstimateCommand(program: Command): void {
       // matching the rest of the from-scratch semantics (every file billed,
       // no eval-cache shortcut).
       const docMode: 'bootstrap' | 'update' = ignoreCache || bootstrapNeeded ? 'bootstrap' : 'update';
-      const docPageCount = docMode === 'bootstrap'
-        ? computeScaffoldPageList(allTasksUnfiltered, profile).length
-        : (docScanInternal?.changed ?? 0);
+      const docPageCount = internalDocMode !== 'full'
+        ? 0
+        : docMode === 'bootstrap'
+          ? (docAxisActive ? computeScaffoldPageList(allTasksUnfiltered, profile).length : 0)
+          : (docScanInternal?.changed ?? 0);
       const scaffoldingModel = config.agents.scaffolding ?? config.models.quality;
 
       const forecast = forecastRun({
@@ -674,7 +683,7 @@ export function registerEstimateCommand(program: Command): void {
         // anymore — it isn't shown in the rendered table either.
         void usageGraph;
 
-        const docsMode: 'bootstrap' | 'update' | 'ready' | 'skipped' = internalDocsOverride === false
+        const docsMode: 'bootstrap' | 'update' | 'ready' | 'skipped' = internalDocsOverride === false || internalDocMode !== 'full'
           ? 'skipped'
           : bootstrapNeeded
             ? 'bootstrap'

@@ -19,6 +19,12 @@ import {
   SECONDS_PER_SYMBOL,
   CONCURRENCY_EFFICIENCY,
   AXIS_COUNT,
+  AXIS_CALL_PROFILES,
+  DELIBERATION_SHARD_PROFILES,
+  FRESH_INPUT_PER_CALL,
+  axisCallProfile,
+  cacheWriteTtl,
+  modelGeneration,
 } from './estimator.js';
 import { ALL_AXIS_IDS } from '../evaluation/axes/index.js';
 import type { Task } from '../../schemas/task.js';
@@ -265,7 +271,7 @@ describe('forecastRun', () => {
   let projectRoot: string;
 
   function seedPricing(
-    models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number }>,
+    models: Record<string, { input: number; output: number; cacheReadInput?: number; cacheCreationInput?: number; cacheCreation1hInput?: number }>,
   ): void {
     const pricingPath = PRICING_PATHS.normalized(projectRoot);
     mkdirSync(dirname(pricingPath), { recursive: true });
@@ -319,9 +325,8 @@ describe('forecastRun', () => {
       ragEnabled: true,
       deliberation: false,
     });
-    // Just the axis pass — no summarizer contribution. Keeps ragEnabled=true
-    // so axis-side RAG context (AXIS_RAG_CONTEXT_TOKENS_PER_FILE) is the same
-    // on both sides; the only difference being asserted is the summary call.
+    // Just the axis pass — no summarizer contribution. Same axis inputs on
+    // both sides; the only difference being asserted is the summary call.
     const expectedAxisOnly = forecastRun({
       projectRoot,
       evalTasks: tasks,
@@ -572,7 +577,7 @@ describe('forecastRun', () => {
   });
 
   describe('cache modeling', () => {
-    it('uses cache rates for cached SYSTEM portion across files (E > 1)', () => {
+    it('reads more from the cache than it writes on each axis call', () => {
       // Anthropic-style rates: cache_read = 10% of input, cache_creation = 125%.
       seedPricing({
         'anthropic/claude-sonnet-4-6': {
@@ -598,7 +603,8 @@ describe('forecastRun', () => {
       });
 
       const axisStep = result.steps[0];
-      // 10 files: 1 cache_creation, 9 cache_read on the SYSTEM_PROMPT_TOKENS portion.
+      // Each call reads the Claude Code system prompt from the cache (~14K)
+      // and writes its per-file context (~4K).
       expect(axisStep.cacheCreationTokens ?? 0).toBeGreaterThan(0);
       expect(axisStep.cacheReadTokens ?? 0).toBeGreaterThan(0);
       expect(axisStep.cacheReadTokens ?? 0).toBeGreaterThan(axisStep.cacheCreationTokens ?? 0);
@@ -632,6 +638,115 @@ describe('forecastRun', () => {
       const naive = (step.inputTokens + (step.cacheReadTokens ?? 0) + (step.cacheCreationTokens ?? 0)) * 5
         + step.outputTokens * 20;
       expect(step.costUsd * 1_000_000).toBeCloseTo(naive, 4);
+    });
+  });
+
+  describe('generation profiles (ANA-19)', () => {
+    const SONNET_55 = 'anthropic/claude-sonnet-5-5';
+    const SONNET_46 = 'anthropic/claude-sonnet-4-6';
+    const sonnet55Rates = { input: 2, output: 10, cacheReadInput: 0.1, cacheCreationInput: 2.5, cacheCreation1hInput: 4 };
+
+    function tenFiles(): Task[] {
+      return Array.from({ length: 10 }, (_, i) =>
+        makeTask(`src/f${i}.ts`, 'export function fn() { return 1; }\n'),
+      );
+    }
+
+    function forecastAxes(tasks: Task[], axes: Array<{ id: string; model: string }>) {
+      return forecastRun({
+        projectRoot,
+        evalTasks: tasks,
+        totalFiles: tasks.length,
+        axes,
+        resolveBillingMode: () => 'api',
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: true,
+        deliberation: false,
+      });
+    }
+
+    it('maps Claude 4.x models to the claude-4 profile and everything else to claude-5', () => {
+      expect(modelGeneration('anthropic/claude-sonnet-4-6')).toBe('claude-4');
+      expect(modelGeneration('anthropic/claude-haiku-4-5-20251001')).toBe('claude-4');
+      expect(modelGeneration('anthropic/claude-opus-4-8')).toBe('claude-4');
+      expect(modelGeneration('anthropic/claude-sonnet-5-5')).toBe('claude-5');
+      expect(modelGeneration('anthropic/claude-fable-5-1')).toBe('claude-5');
+      expect(modelGeneration('openrouter/qwen/qwen3-coder')).toBe('claude-5');
+    });
+
+    it('writes the cache for 1 hour on the anthropic provider only', () => {
+      expect(cacheWriteTtl('anthropic/claude-sonnet-5-5')).toBe('1h');
+      expect(cacheWriteTtl('openrouter/qwen/qwen3-coder')).toBe('5m');
+    });
+
+    it('sizes an axis step from the share of files that reach the LLM', () => {
+      seedPricing({ [SONNET_55]: sonnet55Rates });
+      const tasks = tenFiles();
+      const utility = AXIS_CALL_PROFILES['claude-5'].utility;
+      const correction = AXIS_CALL_PROFILES['claude-5'].correction;
+
+      const result = forecastAxes(tasks, [
+        { id: 'utility', model: SONNET_55 },
+        { id: 'correction', model: SONNET_55 },
+      ]);
+      const util = result.steps.find((s) => s.name === 'utility')!;
+      const corr = result.steps.find((s) => s.name === 'correction')!;
+
+      expect(util.inputTokens).toBe(Math.round(10 * utility.callRate * FRESH_INPUT_PER_CALL));
+      expect(util.cacheReadTokens).toBe(Math.round(10 * utility.callRate * utility.cacheReadPerCall));
+      expect(corr.cacheReadTokens).toBe(Math.round(10 * correction.cacheReadPerCall));
+      // Utility settles most files without the LLM: far fewer tokens than correction.
+      expect(util.cacheReadTokens!).toBeLessThan(corr.cacheReadTokens! / 3);
+    });
+
+    it('prices axis cache writes at the 1-hour rate on the anthropic provider', () => {
+      seedPricing({ [SONNET_55]: sonnet55Rates });
+      const result = forecastAxes(tenFiles(), [{ id: 'correction', model: SONNET_55 }]);
+      const step = result.steps[0];
+      const at1h = (step.inputTokens * 2 + step.outputTokens * 10
+        + (step.cacheReadTokens ?? 0) * 0.1 + (step.cacheCreationTokens ?? 0) * 4) / 1_000_000;
+      expect(step.costUsd).toBeCloseTo(at1h, 9);
+    });
+
+    it('forecasts longer outputs on Claude 4.6 than on Claude 5.5 for the same files', () => {
+      seedPricing({ [SONNET_55]: sonnet55Rates, [SONNET_46]: { input: 3, output: 15 } });
+      const tasks = tenFiles();
+      const on55 = forecastAxes(tasks, [{ id: 'best_practices', model: SONNET_55 }]).steps[0];
+      const on46 = forecastAxes(tasks, [{ id: 'best_practices', model: SONNET_46 }]).steps[0];
+      expect(on46.outputTokens).toBeGreaterThan(on55.outputTokens * 2);
+    });
+
+    it('uses an average call profile for an axis id absent from the table', () => {
+      expect(axisCallProfile('not-an-axis', SONNET_55).callRate).toBe(1);
+      expect(axisCallProfile('correction', SONNET_46)).toBe(AXIS_CALL_PROFILES['claude-4'].correction);
+    });
+
+    it('prices one deliberation shard with the profile of the deliberation model generation', () => {
+      const OPUS_55 = 'anthropic/claude-opus-5-5';
+      seedPricing({
+        [SONNET_55]: sonnet55Rates,
+        [OPUS_55]: { input: 4, output: 20, cacheReadInput: 0.2, cacheCreationInput: 5, cacheCreation1hInput: 8 },
+      });
+      const result = forecastRun({
+        projectRoot,
+        evalTasks: tenFiles(),
+        totalFiles: 10,
+        axes: [{ id: 'correction', model: SONNET_55 }],
+        deliberationModel: OPUS_55,
+        resolveBillingMode: () => 'api',
+        calibration: emptyCal,
+        concurrency: 1,
+        ragEnabled: true,
+        deliberation: true,
+      });
+      const step = result.steps.find((s) => s.category === 'deliberation')!;
+      const shard = DELIBERATION_SHARD_PROFILES['claude-5'];
+      // All ten files live in src/: one shard.
+      expect(step.outputTokens).toBe(shard.output);
+      expect(step.cacheReadTokens).toBe(shard.cacheRead);
+      // 9×$4 + 6468×$20 + 102495×$0.20 + 24225×$8 per M ≈ $0.344
+      expect(step.costUsd).toBeCloseTo(0.344, 3);
     });
   });
 

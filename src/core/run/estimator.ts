@@ -14,52 +14,125 @@ import { NLP_TOKENS_PER_FUNCTION } from '../../rag/embed-estimator.js';
 
 const SYSTEM_PROMPT_TOKENS = 600;
 const PER_FILE_OVERHEAD_TOKENS = 50;
-// Output tokens were calibrated against R1 (rng.ts solo) and R2 (rng + reels):
-// real per-axis-file cost ≈ $0.10 on sonnet-4-6, dominated by long structured
-// findings output. The previous values (150/symbol, 300 base) yielded $0.018,
-// understating reality by ~5.5×. Bumped so a typical reviewed file emits
-// ~1500 base + 400/symbol output tokens.
+/**
+ * Shape of the per-file output volume: a fixed part plus a part per symbol
+ * (R1/R2 runs, 2026-06). Only the shape matters: the level of each axis is
+ * set by `outputMultiplier` in {@link AXIS_CALL_PROFILES}.
+ */
 const OUTPUT_TOKENS_PER_SYMBOL = 400;
 const OUTPUT_BASE_PER_FILE = 1500;
 
 /**
- * Per-file RAG context tokens added to the axis input when RAG is enabled —
- * covers the "Similar functions" (semantic duplication) and "Internal docs"
- * blocks the axis runtime injects into each prompt. Without this, the
- * forecast missed the dominant input contributor and underestimated axes
- * by ~6× against R1/R2 actuals. Treated as fresh input (different per file
- * since the retrieved neighbors change), not cached.
+ * Model generation an LLM call is calibrated for. Claude 5.x answers an axis
+ * with 2.5 to 4 times fewer output tokens than Claude 4.6 (same prompts,
+ * effort high) and writes more of its prompt to the cache, so each generation
+ * has its own measured profile. Anything that is not a Claude 4.x model,
+ * including non-Claude models, uses the current generation's profile.
  */
-export const AXIS_RAG_CONTEXT_TOKENS_PER_FILE = 6000;
+export type ModelGeneration = 'claude-5' | 'claude-4';
+
+export function modelGeneration(modelId: string): ModelGeneration {
+  return /claude-(?:opus|sonnet|haiku)-4(?:-|$)/.test(modelId) ? 'claude-4' : 'claude-5';
+}
 
 /**
- * Per-axis output verbosity multipliers, applied on top of the baseline
- * `perPassOutput` (1500 base + 400 per symbol). Calibrated empirically from
- * R3 v2 actuals on the slot-engine bench (12 files, 7 axes, real per-call
- * token counts captured after the snake_case bug fix in the Anthropic
- * transport).
- *
- * Why per-axis: best_practices and correction emit long structured
- * findings (multi-paragraph rationale + suggestions per violation), while
- * tests and utility emit terse outputs (one-line dead-code calls or
- * pass/fail-style verdicts). Without these multipliers the estimator gave
- * a uniform $0.72/axis prediction that masked a 23× spread in real per-axis
- * cost ($2.30 best_practices vs $0.04 utility on R3).
- *
- * Multipliers are normalized so they roughly average to 1.0 across the 7
- * default axes (sum ≈ 5.6/7), keeping the total-output forecast aligned
- * with R3 actuals (~188K vs 226K predicted = 1.2× over) while distributing
- * the cost correctly per step.
+ * Prompt-cache TTL a provider writes with. The `anthropic` provider always
+ * runs on the Claude Agent SDK transport (`transportForProvider`), which
+ * writes its cache for 1 hour: every first-attempt call of the 2026-10-25
+ * slot-engine runs is billed at the 1-hour rate, to the cent (runs under
+ * OAuth; the same TTL is assumed for API-key auth). Other providers go through
+ * the Vercel AI SDK transport, which leaves the default 5-minute TTL.
  */
-export const AXIS_OUTPUT_MULTIPLIERS: Record<string, number> = {
-  best_practices: 3.36,
-  correction: 1.56,
-  duplication: 0.88,
-  overengineering: 0.54,
-  documentation: 0.31,
-  utility: 0.24,
-  tests: 0.14,
+export function cacheWriteTtl(modelId: string): '5m' | '1h' {
+  return modelId.startsWith('anthropic/') ? '1h' : '5m';
+}
+
+/**
+ * Measured profile of one axis LLM call on the Claude Agent SDK transport.
+ *
+ * - `callRate`: share of the evaluated files for which the axis actually
+ *   calls the LLM. Utility and duplication settle most files without one
+ *   (usage graph, no similar candidate), the other axes call for almost
+ *   every file. Same rate on both generations.
+ * - `outputMultiplier`: output per call, relative to the
+ *   `OUTPUT_BASE_PER_FILE + OUTPUT_TOKENS_PER_SYMBOL × symbols` baseline
+ *   (2940 tokens per file on the calibration fixture: 29 400 for its 10
+ *   evaluated files).
+ * - `cacheReadPerCall`: tokens read from the prompt cache on each call. About
+ *   13K is the Claude Code system prompt and tool definitions, the rest is
+ *   the axis system prompt once cached. Fresh input is ~2 tokens per call.
+ * - `contextPerCall`: tokens written to the cache on each call besides the
+ *   file content itself (axis prompt on first write, RAG neighbours, project
+ *   context). The file content (cl100k count) is added on top.
+ */
+export interface AxisCallProfile {
+  readonly callRate: number;
+  readonly outputMultiplier: number;
+  readonly cacheReadPerCall: number;
+  readonly contextPerCall: number;
+}
+
+/** Fresh (uncached) input per call on the Claude Agent SDK transport. */
+export const FRESH_INPUT_PER_CALL = 2;
+
+/**
+ * Axis call profiles per generation. Measured on the slot-engine bench
+ * fixture on the VM on 2026-10-25 (`costs/ledger.ndjson`, first attempts
+ * only): 8 runs on sonnet-5-5 / opus-5-5 / haiku-5-5, 4 runs on sonnet-4-6 /
+ * opus-4-6 / haiku-4-5, same ANA-7 prompts, effort high, RAG on, 11 evaluated
+ * files of ~320 cl100k tokens each.
+ * Measured per call (output / cache read / cache write), 5.5 then 4.6:
+ *   best_practices   2034 / 16390 / 5549    5184 / 16269 / 3874
+ *   correction        796 / 18649 / 6000    3121 / 19191 / 3019
+ *   duplication       618 / 12705 / 5715    1179 / 16445 / 1230
+ *   overengineering   331 / 14117 / 4644    1005 / 16672 / 1191
+ *   utility           645 / 14472 / 4096    1574 / 16440 / 1367
+ * `contextPerCall` = measured cache write minus the ~320 tokens of file
+ * content. With this profile the forecast lands on the measured mean run
+ * cost of the fixture (ANA-19).
+ *
+ * `tests` and `documentation` are disabled on that fixture: their output is
+ * extrapolated from the 2026-06 R3 multipliers (0.14 and 0.31, scaled by the
+ * 0.57 ratio between the R3 and 2026-10 4.6 multipliers of the measured axes,
+ * then by the 0.38 ratio between the 5.5 and 4.6 outputs), their cache
+ * volumes are the mean of the measured axes, their call rate is 1.
+ *
+ * Known limits: the context written per call was measured with RAG on and
+ * small files; RAG off is not subtracted (slight over-estimate). Non-Claude
+ * models use the claude-5 profile although they do not carry the Claude Code
+ * system prompt (over-estimates their cache reads, a small cost).
+ */
+export const AXIS_CALL_PROFILES: Record<ModelGeneration, Record<string, AxisCallProfile>> = {
+  'claude-5': {
+    best_practices: { callRate: 0.91, outputMultiplier: 0.692, cacheReadPerCall: 16390, contextPerCall: 5229 },
+    correction: { callRate: 1, outputMultiplier: 0.271, cacheReadPerCall: 18649, contextPerCall: 5680 },
+    duplication: { callRate: 0.36, outputMultiplier: 0.21, cacheReadPerCall: 12705, contextPerCall: 5395 },
+    overengineering: { callRate: 0.91, outputMultiplier: 0.113, cacheReadPerCall: 14117, contextPerCall: 4324 },
+    utility: { callRate: 0.18, outputMultiplier: 0.219, cacheReadPerCall: 14472, contextPerCall: 3776 },
+    documentation: { callRate: 1, outputMultiplier: 0.068, cacheReadPerCall: 15267, contextPerCall: 4881 },
+    tests: { callRate: 1, outputMultiplier: 0.031, cacheReadPerCall: 15267, contextPerCall: 4881 },
+  },
+  'claude-4': {
+    best_practices: { callRate: 0.91, outputMultiplier: 1.763, cacheReadPerCall: 16269, contextPerCall: 3554 },
+    correction: { callRate: 1, outputMultiplier: 1.062, cacheReadPerCall: 19191, contextPerCall: 2699 },
+    duplication: { callRate: 0.36, outputMultiplier: 0.401, cacheReadPerCall: 16445, contextPerCall: 910 },
+    overengineering: { callRate: 0.91, outputMultiplier: 0.342, cacheReadPerCall: 16672, contextPerCall: 871 },
+    utility: { callRate: 0.18, outputMultiplier: 0.535, cacheReadPerCall: 16440, contextPerCall: 1047 },
+    documentation: { callRate: 1, outputMultiplier: 0.178, cacheReadPerCall: 17003, contextPerCall: 1816 },
+    tests: { callRate: 1, outputMultiplier: 0.08, cacheReadPerCall: 17003, contextPerCall: 1816 },
+  },
 };
+
+/** Profile for an axis id absent from the table (e.g. a new axis): an average call. */
+const DEFAULT_AXIS_CALL_PROFILE: Record<ModelGeneration, AxisCallProfile> = {
+  'claude-5': { callRate: 1, outputMultiplier: 0.3, cacheReadPerCall: 15267, contextPerCall: 4881 },
+  'claude-4': { callRate: 1, outputMultiplier: 0.8, cacheReadPerCall: 17003, contextPerCall: 1816 },
+};
+
+export function axisCallProfile(axisId: string, modelId: string): AxisCallProfile {
+  const generation = modelGeneration(modelId);
+  return AXIS_CALL_PROFILES[generation][axisId] ?? DEFAULT_AXIS_CALL_PROFILE[generation];
+}
 
 /**
  * Weighted time estimation constants (axis pipeline).
@@ -333,27 +406,37 @@ export const FORECAST_STEP_CATEGORY_ORDER: ReadonlyArray<ForecastStepCategory> =
  * which scaled multiplicatively with axes and files. Token shape is
  * dominated by output (structured per-finding decisions on opus).
  */
-// Per-shard token shape calibrated against R1/R2/R3 actuals at opus-4-6
-// pricing ($5/M in, $25/M out, $0.5/M cacheRead, $6.25/M cacheCreation):
-// cost ≈ $0.35/shard (10K * $5 + 12K * $25 + 1K * $0.5 + 0.6K * $6.25 per M).
-// Earlier draft used 6K+4K which under-priced by 3× because the cached opus
-// rates ($5/$25) are roughly half of the standard opus-4 launch rates the
-// prior calibration assumed.
-export const DELIBERATION_INPUT_PER_SHARD = 10000;
-export const DELIBERATION_OUTPUT_PER_SHARD = 12000;
-export const DELIBERATION_CACHE_READ_PER_SHARD = 1000;
-export const DELIBERATION_CACHE_CREATION_PER_SHARD = 600;
+/**
+ * Per-shard token shape of the tier-3 deliberation call, per generation.
+ * Measured on the same 2026-10-25 slot-engine runs as
+ * {@link AXIS_CALL_PROFILES} (one shard per run, first attempts only):
+ * opus-5-5 ≈ $0.345 per shard, opus-4-6 ≈ $0.306 per shard at the 1-hour
+ * cache-write rate. Like the axis calls, the whole prompt goes through the
+ * cache: fresh input is a handful of tokens. Retries are not modeled (2 of the
+ * 8 runs on 5.5 retried the shard once, +$0.14 each).
+ */
+export interface DeliberationShardProfile {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheCreation: number;
+}
+
+export const DELIBERATION_SHARD_PROFILES: Record<ModelGeneration, DeliberationShardProfile> = {
+  'claude-5': { input: 9, output: 6468, cacheRead: 102495, cacheCreation: 24225 },
+  'claude-4': { input: 4, output: 5601, cacheRead: 46241, cacheCreation: 14311 },
+};
 
 /**
  * Forecast the LLM and embedding workload for a run, with a $ cost
  * projection per pipeline step (axis, NLP summary, embeddings, doc-gen).
  *
- * Axis tokens are multiplied by the number of active axes — each axis is
- * a full pass over the evaluate-tier files. Each axis pass benefits from
- * Anthropic's prompt caching: the per-call SYSTEM prompt is written to
- * cache on the first file and read from cache on every subsequent file
- * (cache_read at ~10% of input rate). The file content itself stays
- * fresh because it changes per call.
+ * Each active axis is one step: the share of the evaluate-tier files that
+ * reach the LLM for that axis, priced with the measured per-call profile of
+ * the axis model's generation ({@link AXIS_CALL_PROFILES}). On the Claude
+ * Agent SDK transport the whole prompt goes through the prompt cache: a
+ * fixed cache read per call (the Claude Code system prompt) and a cache
+ * write per call (file and context), written with the 1-hour TTL.
  *
  * Doc-generation steps (bootstrap on first run, update on subsequent
  * runs) are estimated from a per-page heuristic that accounts for the
@@ -365,9 +448,8 @@ export const DELIBERATION_CACHE_CREATION_PER_SHARD = 600;
  * `calculateCost` returns 0 — that's the right number, they're free.
  *
  * Known limitations:
- * - Retries / refinement / deliberation are not modeled; the SDK's
- *   `total_cost_usd` covers those at run time but estimate is a
- *   forecast, not a replay.
+ * - Retries are not modeled; the SDK's `total_cost_usd` covers them at run
+ *   time but the estimate is a forecast, not a replay.
  */
 export interface RunForecast {
   /** Files that will actually be evaluated (post-triage). */
@@ -565,38 +647,36 @@ export function forecastRun(args: ForecastInputs): RunForecast {
   const E = evalTasks.length;
   const { inputTokens: perPassInput, outputTokens: perPassOutput } = estimateTasksTokens(projectRoot, evalTasks);
 
-  // Decompose per-pass input into the cache-friendly portion (SYSTEM, identical
-  // across files for a given axis ⇒ cached after the first call) and the
-  // fresh portion (file content + per-call overhead, different every call).
-  // For E files, cache_creation = SYSTEM (one write), cache_read = SYSTEM × (E−1).
-  // Models without cache rates (non-Anthropic) fall back to input rate via
-  // calculateCost's pricing.cacheReadInput ?? pricing.input — that yields the
-  // naive cost, exactly what we want for providers without prompt caching.
+  // Each axis call sends its whole prompt through the SDK prompt cache (see
+  // AXIS_CALL_PROFILES): a fixed read per call (Claude Code system prompt +
+  // cached axis system prompt) and a write per call (per-file context + file
+  // content). Only `callRate × E` files reach the LLM; the rest are settled
+  // deterministically. Expected values, so call counts may be fractional:
+  // tokens are rounded per step. Models without cache rates (non-Anthropic)
+  // fall back to the input rate in calculateCost, which yields the naive cost.
   const sumFileTokens = Math.max(0, perPassInput - E * SYSTEM_PROMPT_TOKENS - E * PER_FILE_OVERHEAD_TOKENS);
-  // RAG-injected per-file context (similar functions + internal-doc snippets)
-  // is added to fresh input when RAG is enabled. It changes per call
-  // (different neighbors per file) so it doesn't fit the cache pattern.
-  const ragInputPerAxis = ragEnabled ? E * AXIS_RAG_CONTEXT_TOKENS_PER_FILE : 0;
-  const freshInputPerAxis = sumFileTokens + E * PER_FILE_OVERHEAD_TOKENS + ragInputPerAxis;
-  const cacheReadSystemPerAxis = SYSTEM_PROMPT_TOKENS * Math.max(0, E - 1);
-  const cacheCreationSystemPerAxis = E > 0 ? SYSTEM_PROMPT_TOKENS : 0;
 
   for (const axis of axes) {
-    const outputMultiplier = AXIS_OUTPUT_MULTIPLIERS[axis.id] ?? 1.0;
-    const axisOutput = Math.round(perPassOutput * outputMultiplier);
-    const cost = calculateCost(axis.model, freshInputPerAxis, axisOutput, projectRoot, {
-      read: cacheReadSystemPerAxis,
-      creation: cacheCreationSystemPerAxis,
+    const profile = axisCallProfile(axis.id, axis.model);
+    const calls = E * profile.callRate;
+    const axisInput = Math.round(calls * FRESH_INPUT_PER_CALL);
+    const axisOutput = Math.round(profile.callRate * perPassOutput * profile.outputMultiplier);
+    const axisCacheRead = Math.round(calls * profile.cacheReadPerCall);
+    const axisCacheCreation = Math.round(calls * profile.contextPerCall + profile.callRate * sumFileTokens);
+    const cost = calculateCost(axis.model, axisInput, axisOutput, projectRoot, {
+      read: axisCacheRead,
+      creation: axisCacheCreation,
+      ttl: cacheWriteTtl(axis.model),
     });
     steps.push({
       category: 'axis',
       name: axis.id,
       model: axis.model,
       billingMode: resolveBillingMode(axis.model),
-      inputTokens: freshInputPerAxis,
+      inputTokens: axisInput,
       outputTokens: axisOutput,
-      cacheReadTokens: cacheReadSystemPerAxis,
-      cacheCreationTokens: cacheCreationSystemPerAxis,
+      cacheReadTokens: axisCacheRead,
+      cacheCreationTokens: axisCacheCreation,
       costUsd: cost,
     });
   }
@@ -620,10 +700,11 @@ export function forecastRun(args: ForecastInputs): RunForecast {
   if (deliberation && deliberationModel && axes.length > 0 && E > 0) {
     const distinctDirs = new Set(evalTasks.map((t) => dirname(t.file))).size;
     const shardCount = Math.max(1, distinctDirs);
-    const delibInput = shardCount * DELIBERATION_INPUT_PER_SHARD;
-    const delibOutput = shardCount * DELIBERATION_OUTPUT_PER_SHARD;
-    const delibCacheRead = shardCount * DELIBERATION_CACHE_READ_PER_SHARD;
-    const delibCacheCreation = shardCount * DELIBERATION_CACHE_CREATION_PER_SHARD;
+    const shard = DELIBERATION_SHARD_PROFILES[modelGeneration(deliberationModel)];
+    const delibInput = shardCount * shard.input;
+    const delibOutput = shardCount * shard.output;
+    const delibCacheRead = shardCount * shard.cacheRead;
+    const delibCacheCreation = shardCount * shard.cacheCreation;
     steps.push({
       category: 'deliberation',
       name: '',
@@ -636,6 +717,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       costUsd: calculateCost(deliberationModel, delibInput, delibOutput, projectRoot, {
         read: delibCacheRead,
         creation: delibCacheCreation,
+        ttl: cacheWriteTtl(deliberationModel),
       }),
       approximate: true,
     });
@@ -714,6 +796,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
       costUsd: calculateCost(docContext.scaffoldingModel, docFresh, docOutput, projectRoot, {
         read: docCacheRead,
         creation: docCacheCreation,
+        ttl: cacheWriteTtl(docContext.scaffoldingModel),
       }),
       approximate: true,
     });
@@ -741,6 +824,7 @@ export function forecastRun(args: ForecastInputs): RunForecast {
         costUsd: calculateCost(docContext.scaffoldingModel, cohFresh, cohOutput, projectRoot, {
           read: cohCacheRead,
           creation: cohCacheCreation,
+          ttl: cacheWriteTtl(docContext.scaffoldingModel),
         }),
         approximate: true,
       });

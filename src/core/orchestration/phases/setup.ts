@@ -373,8 +373,10 @@ export async function runSetupPhase(ctx: RunContext, handoff: Handoff): Promise<
   // Doc-gen forecast inputs: pageCount = idealPageCount approximation for
   // bootstrap, or the actual changed count for update. Skipped (pageCount = 0)
   // when nothing to do — forecastRun won't emit a doc step in that case.
+  // Same gates as the doc phases (gates.ts): nothing outside `full` mode, and
+  // no bootstrap without the documentation axis.
   const docMode: 'bootstrap' | 'update' = bootstrapNeeded ? 'bootstrap' : 'update';
-  const docPageCount = !isDocAxisActive(ctx) && bootstrapNeeded
+  const docPageCount = resolveDocMode(ctx.config) !== 'full' || (!isDocAxisActive(ctx) && bootstrapNeeded)
     ? 0
     : docMode === 'bootstrap'
       ? Math.max(8, Math.ceil(allTasks.length / 12))

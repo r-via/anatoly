@@ -30,7 +30,9 @@ export type { ModelPricing };
  * @param cacheTokens - Optional cache-token counts. When the model has cache
  *   rates in the registry (typically Anthropic via litellm), they are applied;
  *   otherwise the input rate is used as a conservative fallback so the cache
- *   contribution isn't silently dropped.
+ *   contribution isn't silently dropped. `ttl` selects the cache-write rate:
+ *   `'5m'` (default) or `'1h'`, the TTL the Claude Agent SDK writes with. A
+ *   model without a 1-hour rate falls back to its 5-minute rate.
  * @returns Cost in USD, or 0 if pricing cannot be resolved (no cache, model
  *   not in registry, or network failure on first run).
  */
@@ -39,7 +41,7 @@ export function calculateCost(
   inputTokens: number,
   outputTokens: number,
   projectRoot?: string,
-  cacheTokens?: { read?: number; creation?: number },
+  cacheTokens?: { read?: number; creation?: number; ttl?: '5m' | '1h' },
 ): number {
   const pricing = lookupPrice(modelId, projectRoot);
   if (!pricing) return 0;
@@ -47,7 +49,10 @@ export function calculateCost(
   const cacheRead = cacheTokens?.read ?? 0;
   const cacheCreation = cacheTokens?.creation ?? 0;
   const cacheReadRate = pricing.cacheReadInput ?? pricing.input;
-  const cacheCreationRate = pricing.cacheCreationInput ?? pricing.input;
+  const cacheCreation5mRate = pricing.cacheCreationInput ?? pricing.input;
+  const cacheCreationRate = cacheTokens?.ttl === '1h'
+    ? pricing.cacheCreation1hInput ?? cacheCreation5mRate
+    : cacheCreation5mRate;
 
   return (
     inputTokens * pricing.input +

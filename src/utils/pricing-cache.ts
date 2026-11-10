@@ -44,8 +44,16 @@ export interface ModelPricing {
    * that case so the cache contribution isn't silently dropped.
    */
   readonly cacheReadInput?: number;
-  /** Cost per 1M cache-creation input tokens. Optional, same fallback policy. */
+  /** Cost per 1M cache-creation input tokens (5-minute TTL). Optional, same fallback policy. */
   readonly cacheCreationInput?: number;
+  /**
+   * Cost per 1M cache-creation input tokens written with the 1-hour TTL.
+   * The Claude Agent SDK transport writes its prompt cache with this TTL:
+   * every first-attempt call of the 2026-10-25 slot-engine runs is billed at
+   * this rate, to the cent. Callers fall back to {@link cacheCreationInput}
+   * when the registry has no 1-hour rate.
+   */
+  readonly cacheCreation1hInput?: number;
 }
 
 /** Origin of a pricing entry — used for traceability in the on-disk file. */
@@ -231,6 +239,7 @@ interface LitellmEntry {
   output_cost_per_token?: number;
   cache_read_input_token_cost?: number;
   cache_creation_input_token_cost?: number;
+  cache_creation_input_token_cost_above_1hr?: number;
 }
 type LitellmRaw = Record<string, LitellmEntry>;
 
@@ -306,6 +315,9 @@ function resolveLitellmPricing(modelId: string, raw: LitellmRaw): ModelPricing |
         : {}),
       ...(typeof entry.cache_creation_input_token_cost === 'number'
         ? { cacheCreationInput: entry.cache_creation_input_token_cost * 1_000_000 }
+        : {}),
+      ...(typeof entry.cache_creation_input_token_cost_above_1hr === 'number'
+        ? { cacheCreation1hInput: entry.cache_creation_input_token_cost_above_1hr * 1_000_000 }
         : {}),
     };
   }
@@ -462,6 +474,7 @@ function toPricing(entry: NormalizedEntry): ModelPricing {
     output: entry.output,
     ...(entry.cacheReadInput != null ? { cacheReadInput: entry.cacheReadInput } : {}),
     ...(entry.cacheCreationInput != null ? { cacheCreationInput: entry.cacheCreationInput } : {}),
+    ...(entry.cacheCreation1hInput != null ? { cacheCreation1hInput: entry.cacheCreation1hInput } : {}),
   };
 }
 

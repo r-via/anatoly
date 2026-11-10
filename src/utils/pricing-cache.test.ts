@@ -21,6 +21,13 @@ const LITELLM_FIXTURE = {
   'claude-sonnet-4-6': { input_cost_per_token: 3e-6, output_cost_per_token: 1.5e-5 },
   'claude-haiku-4-5-20251001': { input_cost_per_token: 1e-6, output_cost_per_token: 5e-6 },
   'claude-opus-4-6': { input_cost_per_token: 5e-6, output_cost_per_token: 2.5e-5 },
+  'claude-sonnet-5-5': {
+    input_cost_per_token: 2e-6,
+    output_cost_per_token: 1e-5,
+    cache_read_input_token_cost: 1e-7,
+    cache_creation_input_token_cost: 2.5e-6,
+    cache_creation_input_token_cost_above_1hr: 4e-6,
+  },
   'mistral/codestral-embed-2505': {
     input_cost_per_token: 1.5e-7,
     output_cost_per_token: 0,
@@ -92,6 +99,18 @@ describe('ensurePricing — first run (no cache)', () => {
       output: 5,
       source: 'litellm',
     });
+  });
+
+  it('keeps the cache rates, including the 1-hour cache-write rate', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(LITELLM_FIXTURE, { etag: '"v1"' }));
+
+    await ensurePricing(['anthropic/claude-sonnet-5-5'], projectRoot);
+
+    const pricing = lookupPrice('anthropic/claude-sonnet-5-5', projectRoot);
+    expect(pricing?.input).toBeCloseTo(2, 9);
+    expect(pricing?.cacheReadInput).toBeCloseTo(0.1, 9);
+    expect(pricing?.cacheCreationInput).toBeCloseTo(2.5, 9);
+    expect(pricing?.cacheCreation1hInput).toBeCloseTo(4, 9);
   });
 
   it('does not call OpenRouter when no openrouter/* model is active', async () => {
