@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-11-10
+
+### Fixed
+
+- **The cost forecast of `anatoly estimate` and of the run startup summary is recalibrated on the Claude 5.5 generation** (ANA-19). On the slot-engine fixture it forecast 8.31 USD for a run that costs 1.61 USD on the 5.5 models; it now forecasts 1.45 USD (and 2.42 USD for 2.66 USD on the 4.6 models). Measured against the per-call token ledgers of 12 runs (8 on 5.5, 4 on 4.6):
+  - Internal-doc generation was counted even with `documentation.internal.mode: off`. The forecast now follows the run: internal docs only in `full` mode, the bootstrap only with the documentation axis enabled.
+  - Axis calls are modeled as the Claude Agent SDK runs them: the whole prompt goes through the prompt cache, and the utility and duplication axes call the model for only part of the files. Output volumes come from a profile measured per model generation (Claude 5.x answers 2.5 to 4 times shorter than 4.6). The deliberation shard is measured the same way.
+  - Cache writes are priced at the 1-hour rate, the TTL the Claude Agent SDK writes with. The pricing cache now reads that rate from litellm.
+
 ## [0.11.0] - 2026-10-25
 
 ### Changed
